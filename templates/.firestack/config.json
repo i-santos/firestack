@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "envFiles": {
+    "development": ".env.fs.development",
+    "staging": ".env.fs.staging",
+    "production": ".env.fs.production",
+    "testDevelopment": ".env.fs.test.development",
+    "testStaging": ".env.fs.test.staging"
+  },
+  "requiredVars": {
+    "shared": [
+      "GCLOUD_PROJECT"
+    ],
+    "development": [
+      "VITE_USE_FIREBASE_EMULATOR",
+      "VITE_FIREBASE_EMULATOR_HOST"
+    ],
+    "staging": [
+      "E2E_BASE_URL"
+    ],
+    "production": [],
+    "testDevelopment": [
+      "GCLOUD_PROJECT"
+    ],
+    "testStaging": [
+      "GCLOUD_PROJECT"
+    ]
+  },
+  "angular": {
+    "exposePrefixes": [
+      "NG_APP_",
+      "VITE_",
+      "FIREBASE_",
+      "PUBLIC_"
+    ]
+  }
+}

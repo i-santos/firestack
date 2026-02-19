@@ -1,0 +1,30 @@
+{
+  "name": "@igorsantos-dev/firestack",
+  "version": "0.2.0",
+  "description": "Portable DX and testing bootstrap for Node/Firebase projects",
+  "type": "module",
+  "private": false,
+  "license": "UNLICENSED",
+  "bin": {
+    "firestack": "./bin/firestack.mjs"
+  },
+  "files": [
+    "bin",
+    "fs-install.mjs",
+    "fs-inject.sh",
+    "templates",
+    "verdaccio",
+    "README.md",
+    "scripts"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "pack": "npm pack",
+    "publish:local": "bash scripts/publish-package.sh",
+    "registry:start": "bash scripts/registry-start.sh",
+    "registry:stop": "bash scripts/registry-stop.sh",
+    "registry:logs": "bash scripts/registry-logs.sh"
+  }
+}
