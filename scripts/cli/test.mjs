@@ -100,6 +100,12 @@ function escapeShell(value) {
 function buildRegistrySetupCommands(registryConfig) {
   const mappings = Array.isArray(registryConfig.mappings) ? registryConfig.mappings : [];
   const commands = [];
+  const defaultDockerUrl = normalizeRegistryUrl(registryConfig.defaultDockerUrl ?? registryConfig.dockerUrl ?? '');
+
+  // Always set a default registry in Docker so npm can rewrite lockfile-hosted URLs consistently.
+  if (defaultDockerUrl) {
+    commands.push(`npm config set registry ${escapeShell(defaultDockerUrl)}`);
+  }
 
   for (const mapping of mappings) {
     if (!mapping || typeof mapping !== 'object') continue;
@@ -113,13 +119,6 @@ function buildRegistrySetupCommands(registryConfig) {
       commands.push(`npm config set ${escapeShell(`${scope}:registry`)} ${escapeShell(dockerUrl)}`);
     } else {
       commands.push(`npm config set registry ${escapeShell(dockerUrl)}`);
-    }
-  }
-
-  if (commands.length === 0) {
-    const defaultDockerUrl = normalizeRegistryUrl(registryConfig.defaultDockerUrl ?? registryConfig.dockerUrl ?? '');
-    if (defaultDockerUrl) {
-      commands.push(`npm config set registry ${escapeShell(defaultDockerUrl)}`);
     }
   }
 
