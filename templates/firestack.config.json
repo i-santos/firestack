@@ -70,8 +70,15 @@
         "STRIPE_SECRET_KEY"
       ],
       "registry": {
-        "url": "http://host.docker.internal:4873",
-        "scope": "@igorsantos-dev"
+        "defaultHostUrl": "http://127.0.0.1:4873",
+        "defaultDockerUrl": "http://host.docker.internal:4873",
+        "mappings": [
+          {
+            "scope": "@igorsantos-dev",
+            "hostUrl": "http://127.0.0.1:4873",
+            "dockerUrl": "http://host.docker.internal:4873"
+          }
+        ]
       }
     }
   }

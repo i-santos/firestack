@@ -67,15 +67,29 @@ Configure no `firestack.config.json`:
     "docker": {
       "addHosts": ["host.docker.internal:host-gateway"],
       "registry": {
-        "url": "http://host.docker.internal:4873",
-        "scope": "@igorsantos-dev"
+        "defaultHostUrl": "http://127.0.0.1:4873",
+        "defaultDockerUrl": "http://host.docker.internal:4873",
+        "mappings": [
+          {
+            "scope": "@igorsantos-dev",
+            "hostUrl": "http://127.0.0.1:4873",
+            "dockerUrl": "http://host.docker.internal:4873"
+          },
+          {
+            "scope": "@outra-scope",
+            "hostUrl": "http://127.0.0.1:4874",
+            "dockerUrl": "http://host.docker.internal:4874"
+          }
+        ]
       }
     }
   }
 }
 ```
 
-Isso evita `ECONNREFUSED 127.0.0.1:4873` dentro do container e deixa o registry parametrizável.
+`mappings` permite quantos `scope -> registry` forem necessários.
+`hostUrl` é para host; `dockerUrl` é para container.
+No Docker, o runner aplica todos os mappings e define `npm config set replace-registry-host always` para evitar lockfile preso em `127.0.0.1`.
 
 ## Publish flow (Verdaccio local)
 

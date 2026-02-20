@@ -41,20 +41,49 @@ function normalizeRegistryUrl(rawUrl) {
   return url.toString().replace(/\/$/, '');
 }
 
+function escapeShell(value) {
+  return `'${String(value).replace(/'/g, `'\"'\"'`)}'`;
+}
+
+function buildRegistrySetupCommands(registryConfig) {
+  const mappings = Array.isArray(registryConfig.mappings) ? registryConfig.mappings : [];
+  const commands = [];
+
+  for (const mapping of mappings) {
+    if (!mapping || typeof mapping !== 'object') continue;
+    const scope = typeof mapping.scope === 'string' ? mapping.scope.trim() : '';
+    const dockerUrl = normalizeRegistryUrl(
+      mapping.dockerUrl ?? mapping.url ?? registryConfig.defaultDockerUrl ?? registryConfig.dockerUrl ?? ''
+    );
+    if (!dockerUrl) continue;
+
+    if (scope) {
+      commands.push(`npm config set ${escapeShell(`${scope}:registry`)} ${escapeShell(dockerUrl)}`);
+    } else {
+      commands.push(`npm config set registry ${escapeShell(dockerUrl)}`);
+    }
+  }
+
+  if (commands.length === 0) {
+    const defaultDockerUrl = normalizeRegistryUrl(registryConfig.defaultDockerUrl ?? registryConfig.dockerUrl ?? '');
+    if (defaultDockerUrl) {
+      commands.push(`npm config set registry ${escapeShell(defaultDockerUrl)}`);
+    }
+  }
+
+  if (commands.length > 0) {
+    commands.push('npm config set replace-registry-host always');
+  }
+
+  return commands;
+}
+
 function buildDockerCommand(command, dockerConfig) {
   const installCommand = dockerConfig.installCommand ?? 'npm ci';
   const registry = dockerConfig.registry ?? {};
-  const registryUrl = normalizeRegistryUrl(registry.url ?? '');
-  const registryScope = registry.scope ?? '';
 
   const setup = [];
-  if (registryUrl) {
-    if (registryScope) {
-      setup.push(`npm config set ${registryScope}:registry ${registryUrl}`);
-    } else {
-      setup.push(`npm config set registry ${registryUrl}`);
-    }
-  }
+  setup.push(...buildRegistrySetupCommands(registry));
   setup.push(installCommand);
   setup.push(command);
 
