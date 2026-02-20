@@ -46,6 +46,15 @@ Mapeamento padrão por ambiente:
 
 Executa suites usando comandos definidos em `firestack.config.json`.
 
+Resolução do projeto Firebase para testes de integração/CI (quando o comando usa `firebase emulators:exec --project ...`):
+
+1. Usa `GCLOUD_PROJECT` se estiver definido.
+2. Senão, tenta ler `.firebaserc` no diretório alvo.
+3. Para escolher alias no `.firebaserc`, a ordem é: `FIREBASE_ALIAS` (se definido), depois `default`, depois o primeiro alias válido em `projects`.
+4. Se não conseguir resolver projeto, falha com erro explícito.
+
+Quando o fallback do `.firebaserc` é usado, o CLI também define `FIREBASE_PROJECT_ALIAS` no ambiente (incluindo execução com `--docker`).
+
 Exemplos:
 
 ```bash

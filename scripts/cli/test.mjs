@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { loadProjectConfig } from './config.mjs';
 
@@ -18,6 +19,57 @@ function runShell(cwd, script, label, env = process.env) {
   if ((result.status ?? 1) !== 0) {
     process.exit(result.status ?? 1);
   }
+}
+
+function resolveFirebaseProjectFromRc(cwd) {
+  const rcPath = resolve(cwd, '.firebaserc');
+  if (!existsSync(rcPath)) return null;
+
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(rcPath, 'utf8'));
+  } catch {
+    throw new Error(`invalid JSON in ${rcPath}`);
+  }
+
+  const projects = parsed?.projects;
+  if (!projects || typeof projects !== 'object') return null;
+
+  const preferredAlias = typeof process.env.FIREBASE_ALIAS === 'string' && process.env.FIREBASE_ALIAS.trim()
+    ? process.env.FIREBASE_ALIAS.trim()
+    : 'default';
+
+  let alias = preferredAlias;
+  let projectId = projects[alias];
+
+  if (typeof projectId !== 'string' || !projectId.trim()) {
+    const firstAlias = Object.keys(projects).find((key) => typeof projects[key] === 'string' && projects[key].trim());
+    if (!firstAlias) return null;
+    alias = firstAlias;
+    projectId = projects[firstAlias];
+  }
+
+  return { alias, projectId: projectId.trim() };
+}
+
+function resolveTestEnv(cwd) {
+  if (typeof process.env.GCLOUD_PROJECT === 'string' && process.env.GCLOUD_PROJECT.trim()) {
+    return { env: process.env, source: null };
+  }
+
+  const resolved = resolveFirebaseProjectFromRc(cwd);
+  if (!resolved) {
+    return { env: process.env, source: null };
+  }
+
+  return {
+    env: {
+      ...process.env,
+      GCLOUD_PROJECT: resolved.projectId,
+      FIREBASE_PROJECT_ALIAS: resolved.alias,
+    },
+    source: resolved,
+  };
 }
 
 function mapCommandKey(args) {
@@ -90,7 +142,7 @@ function buildDockerCommand(command, dockerConfig) {
   return setup.join(' && ');
 }
 
-function buildDockerArgs(cwd, command, dockerConfig) {
+function buildDockerArgs(cwd, command, dockerConfig, env = process.env) {
   const image = dockerConfig.image ?? 'node:22-bookworm';
   const workdir = dockerConfig.workdir ?? '/work';
   const npmCacheVolume = dockerConfig.npmCacheVolume ?? 'firestack-npm-cache';
@@ -98,8 +150,8 @@ function buildDockerArgs(cwd, command, dockerConfig) {
   const passThrough = Array.isArray(dockerConfig.passThroughEnv) ? dockerConfig.passThroughEnv : [];
 
   const envArgs = passThrough
-    .filter((name) => typeof process.env[name] === 'string' && process.env[name] !== '')
-    .flatMap((name) => ['-e', `${name}=${process.env[name]}`]);
+    .filter((name) => typeof env[name] === 'string' && env[name] !== '')
+    .flatMap((name) => ['-e', `${name}=${env[name]}`]);
 
   const hostArgs = addHosts.flatMap((entry) => ['--add-host', entry]);
 
@@ -160,6 +212,7 @@ export function runTest(argv) {
   }
 
   const { data: config } = loadProjectConfig(args.target, args.config);
+  const { env: testEnv, source: projectSource } = resolveTestEnv(args.target);
   const commands = config.test?.commands ?? {};
   const key = mapCommandKey(args);
   const command = commands[key];
@@ -167,13 +220,19 @@ export function runTest(argv) {
     throw new Error(`missing test command "${key}" in firestack.config.json`);
   }
 
+  if (projectSource) {
+    console.log(
+      `[firestack] using Firebase project "${projectSource.projectId}" (alias "${projectSource.alias}") from .firebaserc`
+    );
+  }
+
   if (!args.docker) {
-    runShell(args.target, command, key);
+    runShell(args.target, command, key, testEnv);
     return;
   }
 
   const dockerConfig = config.test?.docker ?? {};
-  const dockerArgs = buildDockerArgs(args.target, command, dockerConfig);
+  const dockerArgs = buildDockerArgs(args.target, command, dockerConfig, testEnv);
 
   const result = spawnSync('docker', dockerArgs, { stdio: 'inherit' });
   if (result.error) {

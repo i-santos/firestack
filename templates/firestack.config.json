@@ -39,12 +39,12 @@
   "test": {
     "commands": {
       "unit": "node --test --experimental-strip-types tests/unit/**/*.test.ts",
-      "integration": "npm --prefix functions run build && firebase emulators:exec --project ${GCLOUD_PROJECT:-demo-present-goal} \"node scripts/run-integration-report.mjs\"",
+      "integration": "npm --prefix functions run build && firebase emulators:exec --project ${GCLOUD_PROJECT:?Set GCLOUD_PROJECT} \"node scripts/run-integration-report.mjs\"",
       "e2eSmoke": "node scripts/run-e2e.mjs smoke",
       "e2eFull": "node scripts/run-e2e.mjs full",
       "stagingSmoke": "node --env-file-if-exists=.env.test.staging scripts/run-e2e-staging.mjs smoke",
       "stagingFull": "node --env-file-if-exists=.env.test.staging scripts/run-e2e-staging.mjs full",
-      "ci": "node --test --experimental-strip-types tests/unit/**/*.test.ts && npm --prefix functions run build && firebase emulators:exec --project ${GCLOUD_PROJECT:-demo-present-goal} \"node scripts/run-integration-report.mjs && node scripts/run-e2e.mjs smoke\""
+      "ci": "node --test --experimental-strip-types tests/unit/**/*.test.ts && npm --prefix functions run build && firebase emulators:exec --project ${GCLOUD_PROJECT:?Set GCLOUD_PROJECT} \"node scripts/run-integration-report.mjs && node scripts/run-e2e.mjs smoke\""
     },
     "docker": {
       "image": "node:22-bookworm",
@@ -56,6 +56,7 @@
       ],
       "passThroughEnv": [
         "GCLOUD_PROJECT",
+        "FIREBASE_PROJECT_ALIAS",
         "E2E_BASE_URL",
         "E2E_CLEANUP",
         "E2E_RUN_ID",
