@@ -16,14 +16,14 @@ npx firestack test --ci --docker --docker-rebuild
 
 ### `install`
 
-- cria `firestack.config.json` (se não existir)
+- cria `firestack.config.json` e `playwright.config.mjs` (se não existirem)
 - adiciona `@playwright/test` em `devDependencies`
 - roda `npm install`
 - roda `playwright install chromium`
 
 ### `init`
 
-Cria apenas `firestack.config.json` no projeto alvo.
+Cria `firestack.config.json` e `playwright.config.mjs` no projeto alvo.
 
 ### `env`
 

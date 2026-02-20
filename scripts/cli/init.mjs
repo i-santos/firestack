@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const TEMPLATE_CONFIG = join(ROOT, 'templates', 'firestack.config.json');
+const TEMPLATE_PLAYWRIGHT_CONFIG = join(ROOT, 'templates', 'playwright.config.mjs');
 
 function printHelp() {
   console.log('Usage: firestack init [--target <dir>] [--force] [--dry-run]');
@@ -38,17 +39,28 @@ export function runInit(argv) {
     throw new Error(`unknown argument: ${token}`);
   }
 
-  const destination = join(args.target, 'firestack.config.json');
-  if (existsSync(destination) && !args.force) {
-    console.log(`[firestack] firestack.config.json already exists: ${destination}`);
-    console.log('[firestack] use --force to overwrite');
-    return;
+  const files = [
+    { template: TEMPLATE_CONFIG, relativePath: 'firestack.config.json', label: 'firestack.config.json' },
+    { template: TEMPLATE_PLAYWRIGHT_CONFIG, relativePath: 'playwright.config.mjs', label: 'playwright.config.mjs' },
+  ];
+  let skippedExisting = false;
+
+  for (const file of files) {
+    const destination = join(args.target, file.relativePath);
+    if (existsSync(destination) && !args.force) {
+      console.log(`[firestack] ${file.label} already exists: ${destination}`);
+      skippedExisting = true;
+      continue;
+    }
+    if (!args.dryRun) {
+      cpSync(file.template, destination, { recursive: false });
+    }
+    console.log(`[firestack] initialized ${destination}`);
   }
 
-  if (!args.dryRun) {
-    cpSync(TEMPLATE_CONFIG, destination, { recursive: false });
+  if (skippedExisting) {
+    console.log('[firestack] use --force to overwrite existing files');
   }
-  console.log(`[firestack] initialized ${destination}`);
   if (args.dryRun) {
     console.log('[firestack] dry-run mode: no files were written');
   }
