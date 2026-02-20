@@ -80,6 +80,7 @@ Configure no `firestack.config.json`:
       "buildNetwork": "host",
       "bootstrapCommand": "if [ ! -d /work/node_modules/firebase ]; then mkdir -p /work/node_modules && cp -a /opt/deps/node_modules/. /work/node_modules/; fi",
       "runAsHostUser": true,
+      "writablePaths": ["out", "test-results"],
       "addHosts": ["host.docker.internal:host-gateway"],
       "stagingProjectId": "staging-present-goal",
       "registry": {
@@ -104,6 +105,7 @@ Guards compatíveis com os scripts legados:
 
 `runAsHostUser: true` mantém escrita no bind mount com UID/GID do host.
 Para lockfiles com pacotes em registry local (`127.0.0.1`), use `buildNetwork: "host"` no Linux para o `npm ci` do build enxergar o Verdaccio do host.
+`writablePaths` define diretórios no bind mount que o runner prepara com permissão de escrita para gerar artefatos.
 
 ## Publish flow (Verdaccio local)
 

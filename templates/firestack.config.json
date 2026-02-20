@@ -53,6 +53,10 @@
       "buildNetwork": "host",
       "workdir": "/work",
       "runAsHostUser": true,
+      "writablePaths": [
+        "out",
+        "test-results"
+      ],
       "bootstrapCommand": "if [ ! -d /work/node_modules/firebase ]; then mkdir -p /work/node_modules && cp -a /opt/deps/node_modules/. /work/node_modules/; fi",
       "cleanup": true,
       "stagingProjectId": "staging-present-goal",

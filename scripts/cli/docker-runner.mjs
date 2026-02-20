@@ -150,6 +150,51 @@ function buildResourceArgs(env = process.env) {
   return args;
 }
 
+function escapeForDoubleQuotes(value) {
+  return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+function ensureBindPathsWritableForUser(logPrefix, image, repoPath, uid, gid, workdir = '/work', paths = []) {
+  if (!Array.isArray(paths) || paths.length === 0) return;
+
+  const sanitized = paths
+    .filter((entry) => typeof entry === 'string' && entry.trim() !== '')
+    .map((entry) => entry.trim())
+    .filter((entry) => !entry.startsWith('/'))
+    .filter((entry) => !entry.includes('..'));
+
+  if (sanitized.length === 0) return;
+
+  const ownership = `${uid}:${gid}`;
+  const pathArgs = sanitized.map((entry) => `"${escapeForDoubleQuotes(entry)}"`).join(' ');
+  const command = [
+    `for rel in ${pathArgs}; do`,
+    `  target="${workdir}/$rel"`,
+    '  mkdir -p "$target"',
+    `  current="$(stat -c '%u:%g' "$target" 2>/dev/null || true)"`,
+    `  if [ "$current" != "${ownership}" ]; then chown -R ${ownership} "$target"; fi`,
+    'done',
+  ].join(' ');
+
+  const result = runDocker([
+    'run',
+    '--rm',
+    '-v',
+    `${repoPath}:${workdir}`,
+    image,
+    'bash',
+    '-lc',
+    command,
+  ], { stdio: 'inherit' });
+
+  if (result.error) {
+    fail(logPrefix, `failed to prepare artifact directory permissions: ${result.error.message}`);
+  }
+  if ((result.status ?? 1) !== 0) {
+    process.exit(result.status ?? 1);
+  }
+}
+
 function ensureVolumeWritableForUser(logPrefix, image, volumeName, uid, gid, workdir = '/work') {
   const ownership = `${uid}:${gid}`;
   const target = `${workdir}/node_modules`;
@@ -208,6 +253,9 @@ export function createDockerTask({ cwd, logPrefix, dockerConfig, env = process.e
     ? ['--network', buildNetwork.trim()]
     : [];
   const imageBuildArgs = [...buildNetworkArgs, ...buildHostArgs];
+  const writablePaths = Array.isArray(dockerConfig.writablePaths)
+    ? dockerConfig.writablePaths
+    : ['out', 'test-results'];
 
   return {
     image,
@@ -215,6 +263,7 @@ export function createDockerTask({ cwd, logPrefix, dockerConfig, env = process.e
     prepare() {
       ensureImage(logPrefix, image, dockerfilePath, cwd, depsHash, imageBuildArgs);
       if (useHostUser) {
+        ensureBindPathsWritableForUser(logPrefix, image, cwd, process.getuid(), process.getgid(), workdir, writablePaths);
         ensureVolumeWritableForUser(logPrefix, image, nodeModulesVolume, process.getuid(), process.getgid(), workdir);
       }
       if (dockerConfig.cleanup !== false) {
