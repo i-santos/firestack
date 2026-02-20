@@ -5,7 +5,7 @@ import { loadProjectConfig } from './config.mjs';
 import { createDockerTask, defaultBootstrapCommand } from './docker-runner.mjs';
 
 function printHelp() {
-  console.log('Usage: firestack test [--ci|--unit|--integration|--e2e|--staging] [--docker] [--docker-rebuild] [--full] [--target <dir>] [--config <path>]');
+  console.log('Usage: firestack test [--ci|--unit|--integration|--e2e|--staging] [--docker] [--docker-rebuild] [--fail-fast] [--full] [--target <dir>] [--config <path>]');
 }
 
 function runShell(cwd, script, label, env = process.env) {
@@ -75,12 +75,12 @@ function mapCommandKey(args) {
   const explicitCount = [args.ci, args.unit, args.integration, args.e2e, args.staging].filter(Boolean).length;
   const suffix = args.full ? 'Full' : 'Smoke';
 
-  if (explicitCount === 0 || args.ci) return 'ci';
+  if (explicitCount === 0 || args.ci) return args.failFast ? 'ciFailFast' : 'ci';
   if (args.unit) return 'unit';
   if (args.integration) return 'integration';
   if (args.e2e) return `e2e${suffix}`;
   if (args.staging) return `staging${suffix}`;
-  return 'ci';
+  return args.failFast ? 'ciFailFast' : 'ci';
 }
 
 function isOverrideAllowed(env = process.env) {
@@ -153,7 +153,7 @@ function requireProject(expectedProjectId, currentProjectId, logPrefix) {
 }
 
 function buildDockerLogPrefix(key) {
-  if (key === 'ci') return '[test:ci:docker]';
+  if (key === 'ci' || key === 'ciFailFast') return '[test:ci:docker]';
   if (key === 'integration') return '[test:integration:docker]';
   if (key === 'unit') return '[test:unit:docker]';
   if (key === 'stagingSmoke' || key === 'stagingFull') return '[test:e2e:staging:docker]';
@@ -291,17 +291,36 @@ function parseTestcases(xml) {
   while (match) {
     const attrs = parseAttributes(match[1] ?? '');
     const body = match[2] ?? '';
-    const failureTag = body.match(/<failure\b[\s\S]*?message="([^"]*)"[\s\S]*?<\/failure>/);
+    const failureTag = body.match(/<failure\b([\s\S]*?)>([\s\S]*?)<\/failure>/);
     const skippedTag = body.match(/<skipped\b[\s\S]*?>/);
     const durationMs = Number.isFinite(Number(attrs.time)) ? Math.round(Number(attrs.time) * 1000) : 0;
     let status = 'pass';
     if (skippedTag) status = 'skipped';
     if (failureTag) status = 'fail';
+    let failureMessage = null;
+    let failureLocation = null;
+    if (failureTag) {
+      const failureAttrs = parseAttributes(failureTag[1] ?? '');
+      failureMessage = decodeXmlEntities(failureAttrs.message ?? 'failed');
+      const rawFailureText = decodeXmlEntities(
+        (failureTag[2] ?? '')
+          .replace('<![CDATA[', '')
+          .replace(']]>', '')
+          .trim()
+      );
+      const locationMatch = rawFailureText.match(/([A-Za-z0-9_./\\-]+\.(?:[cm]?[jt]sx?|mjs|cjs)):(\d+):(\d+)/);
+      if (locationMatch) {
+        failureLocation = `${locationMatch[1]}:${locationMatch[2]}:${locationMatch[3]}`;
+      } else if (attrs.classname) {
+        failureLocation = attrs.classname;
+      }
+    }
     cases.push({
       name: attrs.name || '(unnamed testcase)',
       durationMs,
       status,
-      failureMessage: failureTag ? decodeXmlEntities(failureTag[1] ?? 'failed') : null,
+      failureMessage,
+      failureLocation,
     });
     match = caseRe.exec(xml);
   }
@@ -330,7 +349,7 @@ function printSuiteSummaryRow(summary) {
   const pass = String(summary.passed).padStart(4, ' ');
   const fail = String(summary.failures).padStart(4, ' ');
   const skip = String(summary.skipped).padStart(4, ' ');
-  console.log(`  ${summary.suiteName.padEnd(12, ' ')} tests:${tests} pass:${pass} fail:${fail} skip:${skip} time:${durationSec}s`);
+  console.log(`  ${summary.suiteName.padEnd(12, ' ')} | tests ${tests} | pass ${pass} | fail ${fail} | skip ${skip} | time ${durationSec}s`);
 }
 
 function printTestSummary(cwd, key) {
@@ -346,7 +365,7 @@ function printTestSummary(cwd, key) {
   if (key === 'integration') expectedSuiteKeys = ['integration'];
   if (key === 'e2eSmoke' || key === 'e2eFull') expectedSuiteKeys = ['e2e'];
   if (key === 'stagingSmoke' || key === 'stagingFull') expectedSuiteKeys = ['e2e-staging'];
-  if (key === 'ci') expectedSuiteKeys = ['unit', 'integration', 'e2e'];
+  if (key === 'ci' || key === 'ciFailFast') expectedSuiteKeys = ['unit', 'integration', 'e2e'];
 
   const suites = expectedSuiteKeys
     .map((suiteKey) => suiteMap[suiteKey])
@@ -363,21 +382,25 @@ function printTestSummary(cwd, key) {
   }), { tests: 0, passed: 0, failures: 0, skipped: 0, durationMs: 0 });
 
   console.log('\n=== Firestack Test Report ===');
-  console.log(`  command: ${key}`);
+  console.log(`  Command: ${key}`);
+  console.log('  ---------------------------------------------------------------');
   suites.forEach((suite) => printSuiteSummaryRow(suite));
   const totalSec = (total.durationMs / 1000).toFixed(2);
-  console.log('-----------------------------');
-  console.log(`  total       tests:${String(total.tests).padStart(4, ' ')} pass:${String(total.passed).padStart(4, ' ')} fail:${String(total.failures).padStart(4, ' ')} skip:${String(total.skipped).padStart(4, ' ')} time:${totalSec.padStart(7, ' ')}s`);
+  console.log('  ---------------------------------------------------------------');
+  console.log(`  total        | tests ${String(total.tests).padStart(4, ' ')} | pass ${String(total.passed).padStart(4, ' ')} | fail ${String(total.failures).padStart(4, ' ')} | skip ${String(total.skipped).padStart(4, ' ')} | time ${totalSec.padStart(7, ' ')}s`);
 
   const failedCases = suites.flatMap((suite) => suite.cases
     .filter((testcase) => testcase.status === 'fail')
     .slice(0, 5)
     .map((testcase) => ({ suiteName: suite.suiteName, testcase })));
   if (failedCases.length > 0) {
-    console.log('  failures:');
+    console.log('\n  Failures:');
     failedCases.forEach(({ suiteName, testcase }) => {
       const message = testcase.failureMessage ? ` -> ${testcase.failureMessage}` : '';
       console.log(`    - [${suiteName}] ${testcase.name}${message}`);
+      if (testcase.failureLocation) {
+        console.log(`      at ${testcase.failureLocation}`);
+      }
     });
   }
 }
@@ -388,6 +411,7 @@ export function runTest(argv) {
     config: null,
     docker: false,
     dockerRebuild: false,
+    failFast: false,
     ci: false,
     unit: false,
     integration: false,
@@ -410,6 +434,7 @@ export function runTest(argv) {
     }
     if (token === '--docker') { args.docker = true; continue; }
     if (token === '--docker-rebuild') { args.dockerRebuild = true; continue; }
+    if (token === '--fail-fast') { args.failFast = true; continue; }
     if (token === '--ci') { args.ci = true; continue; }
     if (token === '--unit') { args.unit = true; continue; }
     if (token === '--integration') { args.integration = true; continue; }
@@ -427,9 +452,12 @@ export function runTest(argv) {
   const { env: testEnv, source: projectSource } = resolveTestEnv(args.target);
   const commands = config.test?.commands ?? {};
   const key = mapCommandKey(args);
-  const command = commands[key];
+  const command = commands[key] ?? (key === 'ciFailFast' ? commands.ci : null);
   if (!command) {
     throw new Error(`missing test command "${key}" in firestack.config.json`);
+  }
+  if (key === 'ciFailFast' && !commands.ciFailFast) {
+    console.log('[firestack] ciFailFast command not found; falling back to "ci" command from config.');
   }
 
   if (projectSource) {
@@ -449,7 +477,7 @@ export function runTest(argv) {
   const externalBaseUrl = testEnv.E2E_BASE_URL?.trim();
   const passThrough = Array.isArray(dockerConfig.passThroughEnv) ? dockerConfig.passThroughEnv : [];
 
-  if (key === 'ci') {
+  if (key === 'ci' || key === 'ciFailFast') {
     assertNoExternalBaseUrlForCi(testEnv, logPrefix);
   } else if (key === 'e2eSmoke' || key === 'e2eFull') {
     validateExternalBaseUrl(externalBaseUrl, testEnv, logPrefix);

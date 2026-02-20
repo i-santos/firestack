@@ -63,11 +63,15 @@ Exemplos:
 npx firestack test
 npx firestack test --ci --docker
 npx firestack test --ci --docker --docker-rebuild
+npx firestack test --ci --fail-fast
 npx firestack test --unit
 npx firestack test --integration
 npx firestack test --e2e --full
 npx firestack test --staging --full --docker
 ```
+
+No `--ci`, o padrão é executar `integration` e `e2e smoke` e falhar só no final se qualquer suite falhar.
+Para modo fail-fast, use `--fail-fast`.
 
 ## Docker (Imagem + Rebuild Inteligente)
 
@@ -85,7 +89,7 @@ Configure no `firestack.config.json`:
       "bootstrapCommand": "if [ ! -d /work/node_modules/firebase ]; then mkdir -p /work/node_modules && cp -a /opt/deps/node_modules/. /work/node_modules/; fi",
       "runAsHostUser": true,
       "preloadFirestoreEmulator": true,
-      "writablePaths": ["out", "playwright-report"],
+      "writablePaths": ["out"],
       "addHosts": ["host.docker.internal:host-gateway"],
       "stagingProjectId": "staging-present-goal",
       "registry": {

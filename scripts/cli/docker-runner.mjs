@@ -263,11 +263,14 @@ function ensureFirestoreEmulatorCached(logPrefix, image, cacheVolume, uid, gid) 
   ], { stdio: 'inherit' });
 
   if (result.error) {
-    fail(logPrefix, `failed to warm firestore emulator cache: ${result.error.message}`);
+    console.warn(`${logPrefix} unable to warm firestore emulator cache: ${result.error.message}`);
+    return false;
   }
   if ((result.status ?? 1) !== 0) {
-    process.exit(result.status ?? 1);
+    console.warn(`${logPrefix} firestore emulator cache warmup exited with code ${result.status ?? 'unknown'}. continuing without warmup.`);
+    return false;
   }
+  return true;
 }
 
 export function defaultBootstrapCommand() {
