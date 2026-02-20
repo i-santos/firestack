@@ -114,9 +114,13 @@ function cleanupOldDockerArtifacts(logPrefix, imageBaseName, volumePrefix, keepI
   }
 }
 
-function ensureImage(logPrefix, image, dockerfilePath, repoPath, depsHash, buildArgs = []) {
+function ensureImage(logPrefix, image, dockerfilePath, repoPath, depsHash, buildArgs = [], forceRebuild = false) {
   const imageExists = runDocker(['image', 'inspect', image], { stdio: 'ignore' }).status === 0;
-  if (imageExists) return;
+  if (imageExists && !forceRebuild) return;
+  if (imageExists && forceRebuild) {
+    console.log(`${logPrefix} force rebuild enabled. removing cached image ${image}`);
+    runDockerStrict(logPrefix, 'failed to remove docker image for rebuild', ['image', 'rm', image], { stdio: 'inherit' });
+  }
   console.log(`${logPrefix} building image ${image} (deps hash: ${depsHash})`);
   if (buildArgs.length > 0) {
     console.log(`${logPrefix} building image options: ${buildArgs.join(' ')}`);
@@ -195,9 +199,9 @@ done`;
   }
 }
 
-function ensureVolumeWritableForUser(logPrefix, image, volumeName, uid, gid, workdir = '/work') {
+function ensureVolumeWritableForUser(logPrefix, image, volumeName, uid, gid, workdir = '/work', relativePath = 'node_modules') {
   const ownership = `${uid}:${gid}`;
-  const target = `${workdir}/node_modules`;
+  const target = `${workdir}/${relativePath}`;
   const command = [
     `mkdir -p ${target}`,
     `current="$(stat -c '%u:%g' ${target} 2>/dev/null || true)"`,
@@ -223,15 +227,59 @@ function ensureVolumeWritableForUser(logPrefix, image, volumeName, uid, gid, wor
   }
 }
 
+function ensureFirestoreEmulatorCached(logPrefix, image, cacheVolume, uid, gid) {
+  const userArgs = Number.isInteger(uid) && Number.isInteger(gid) ? ['--user', `${uid}:${gid}`] : [];
+  const command = [
+    'set -e',
+    'mkdir -p /firestack-cache/firebase/emulators',
+    'if ls /firestack-cache/firebase/emulators/cloud-firestore-emulator-*.jar >/dev/null 2>&1; then',
+    `  echo '${logPrefix} firestore emulator already cached.'`,
+    '  exit 0',
+    'fi',
+    `echo '${logPrefix} preloading firestore emulator into docker cache volume...'`,
+    'if [ -x /opt/deps/node_modules/.bin/firebase ]; then',
+    '  FIREBASE_EMULATORS_PATH=/firestack-cache/firebase/emulators /opt/deps/node_modules/.bin/firebase setup:emulators:firestore',
+    '  exit 0',
+    'fi',
+    'if [ -x node_modules/.bin/firebase ]; then',
+    '  FIREBASE_EMULATORS_PATH=/firestack-cache/firebase/emulators node_modules/.bin/firebase setup:emulators:firestore',
+    '  exit 0',
+    'fi',
+    'FIREBASE_EMULATORS_PATH=/firestack-cache/firebase/emulators npx firebase-tools setup:emulators:firestore',
+  ].join('\n');
+
+  const result = runDocker([
+    'run',
+    '--rm',
+    ...userArgs,
+    '-v',
+    `${cacheVolume}:/firestack-cache`,
+    '-e',
+    'FIREBASE_EMULATORS_PATH=/firestack-cache/firebase/emulators',
+    image,
+    'bash',
+    '-lc',
+    command,
+  ], { stdio: 'inherit' });
+
+  if (result.error) {
+    fail(logPrefix, `failed to warm firestore emulator cache: ${result.error.message}`);
+  }
+  if ((result.status ?? 1) !== 0) {
+    process.exit(result.status ?? 1);
+  }
+}
+
 export function defaultBootstrapCommand() {
   return 'if [ ! -d /work/node_modules/firebase ]; then mkdir -p /work/node_modules && cp -a /opt/deps/node_modules/. /work/node_modules/; fi';
 }
 
-export function createDockerTask({ cwd, logPrefix, dockerConfig, env = process.env }) {
+export function createDockerTask({ cwd, logPrefix, dockerConfig, env = process.env, forceRebuild = false }) {
   const dockerfilePath = dockerConfig.dockerfile ?? 'tests/integration/Dockerfile';
   const namespace = getArtifactNamespace(cwd, env);
   const imageBaseName = `${dockerConfig.imageBaseName ?? 'firestack-tests'}-${namespace}`;
   const nodeModulesVolumePrefix = `${dockerConfig.nodeModulesVolumePrefix ?? 'firestack-node_modules-'}${namespace}-`;
+  const emulatorCacheVolume = `${dockerConfig.emulatorCacheVolumePrefix ?? 'firestack-firebase-cache-'}${namespace}`;
   const depsHash = computeDepsHash(cwd, dockerfilePath, dockerConfig.lockfilePath ?? 'package-lock.json');
   const image = `${imageBaseName}:${depsHash}`;
   const nodeModulesVolume = `${nodeModulesVolumePrefix}${depsHash}`;
@@ -255,16 +303,28 @@ export function createDockerTask({ cwd, logPrefix, dockerConfig, env = process.e
   const imageBuildArgs = [...buildNetworkArgs, ...buildHostArgs];
   const writablePaths = Array.isArray(dockerConfig.writablePaths)
     ? dockerConfig.writablePaths
-    : ['out', 'test-results', 'playwright-report'];
+    : ['out', 'playwright-report'];
+  const preloadFirestoreEmulator = dockerConfig.preloadFirestoreEmulator !== false;
 
   return {
     image,
     nodeModulesVolume,
+    emulatorCacheVolume,
     prepare() {
-      ensureImage(logPrefix, image, dockerfilePath, cwd, depsHash, imageBuildArgs);
+      ensureImage(logPrefix, image, dockerfilePath, cwd, depsHash, imageBuildArgs, forceRebuild);
       if (useHostUser) {
         ensureBindPathsWritableForUser(logPrefix, image, cwd, process.getuid(), process.getgid(), workdir, writablePaths);
         ensureVolumeWritableForUser(logPrefix, image, nodeModulesVolume, process.getuid(), process.getgid(), workdir);
+        ensureVolumeWritableForUser(logPrefix, image, emulatorCacheVolume, process.getuid(), process.getgid(), '/firestack-cache', 'firebase/emulators');
+      }
+      if (preloadFirestoreEmulator) {
+        ensureFirestoreEmulatorCached(
+          logPrefix,
+          image,
+          emulatorCacheVolume,
+          useHostUser ? process.getuid() : null,
+          useHostUser ? process.getgid() : null
+        );
       }
       if (dockerConfig.cleanup !== false) {
         cleanupOldDockerArtifacts(logPrefix, imageBaseName, nodeModulesVolumePrefix, image, nodeModulesVolume);
@@ -282,12 +342,16 @@ export function createDockerTask({ cwd, logPrefix, dockerConfig, env = process.e
         `${cwd}:${workdir}`,
         '-v',
         `${nodeModulesVolume}:${workdir}/node_modules`,
+        '-v',
+        `${emulatorCacheVolume}:/firestack-cache`,
         '-w',
         workdir,
         ...hostArgs,
         ...resourceArgs,
         ...extraArgs,
         ...dockerEnvArgs,
+        '-e',
+        'FIREBASE_EMULATORS_PATH=/firestack-cache/firebase/emulators',
         image,
         'bash',
         '-lc',
@@ -298,7 +362,7 @@ export function createDockerTask({ cwd, logPrefix, dockerConfig, env = process.e
       if (result.error) {
         fail(logPrefix, `failed to execute docker: ${result.error.message}`);
       }
-      process.exit(result.status ?? 1);
+      return result.status ?? 1;
     },
   };
 }

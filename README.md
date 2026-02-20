@@ -11,6 +11,7 @@ npx firestack install
 npx firestack init
 npx firestack env --development
 npx firestack test --ci
+npx firestack test --ci --docker --docker-rebuild
 ```
 
 ### `install`
@@ -60,6 +61,7 @@ Exemplos:
 ```bash
 npx firestack test
 npx firestack test --ci --docker
+npx firestack test --ci --docker --docker-rebuild
 npx firestack test --unit
 npx firestack test --integration
 npx firestack test --e2e --full
@@ -77,10 +79,12 @@ Configure no `firestack.config.json`:
       "dockerfile": "tests/integration/Dockerfile",
       "imageBaseName": "firestack-tests",
       "nodeModulesVolumePrefix": "firestack-node_modules-",
+      "emulatorCacheVolumePrefix": "firestack-firebase-cache-",
       "buildNetwork": "host",
       "bootstrapCommand": "if [ ! -d /work/node_modules/firebase ]; then mkdir -p /work/node_modules && cp -a /opt/deps/node_modules/. /work/node_modules/; fi",
       "runAsHostUser": true,
-      "writablePaths": ["out", "test-results", "playwright-report"],
+      "preloadFirestoreEmulator": true,
+      "writablePaths": ["out", "playwright-report"],
       "addHosts": ["host.docker.internal:host-gateway"],
       "stagingProjectId": "staging-present-goal",
       "registry": {
@@ -97,6 +101,13 @@ No modo `--docker`, o FireStack:
 - reutiliza imagem/volume quando o hash não muda;
 - faz rebuild automático quando deps mudam;
 - monta `node_modules` em volume dedicado por hash para acelerar as execuções.
+- mantém cache persistente dos emulators Firebase em volume Docker dedicado para evitar download em toda suíte.
+
+Para forçar rebuild manual da imagem:
+
+```bash
+npx firestack test --ci --docker --docker-rebuild
+```
 
 Guards compatíveis com os scripts legados:
 - `ci --docker` bloqueia `E2E_BASE_URL` externo (a menos de `ALLOW_NON_STAGING_E2E=true`);
@@ -116,6 +127,8 @@ Layout recomendado de artefatos (centralizado):
 - `out/test-results/e2e/html/`
 - `out/test-results/e2e-staging/junit.xml`
 - `out/test-results/e2e-staging/html/`
+
+O comando `firestack test` também imprime um resumo final consolidado (unit/integration/e2e) com totais e falhas principais.
 
 ## Publish flow (Verdaccio local)
 

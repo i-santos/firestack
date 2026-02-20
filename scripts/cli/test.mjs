@@ -5,7 +5,7 @@ import { loadProjectConfig } from './config.mjs';
 import { createDockerTask, defaultBootstrapCommand } from './docker-runner.mjs';
 
 function printHelp() {
-  console.log('Usage: firestack test [--ci|--unit|--integration|--e2e|--staging] [--docker] [--full] [--target <dir>] [--config <path>]');
+  console.log('Usage: firestack test [--ci|--unit|--integration|--e2e|--staging] [--docker] [--docker-rebuild] [--full] [--target <dir>] [--config <path>]');
 }
 
 function runShell(cwd, script, label, env = process.env) {
@@ -17,9 +17,7 @@ function runShell(cwd, script, label, env = process.env) {
   if (result.error) {
     throw new Error(`${label}: ${result.error.message}`);
   }
-  if ((result.status ?? 1) !== 0) {
-    process.exit(result.status ?? 1);
-  }
+  return result.status ?? 1;
 }
 
 function resolveFirebaseProjectFromRc(cwd) {
@@ -163,11 +161,130 @@ function buildDockerLogPrefix(key) {
   return '[test:docker]';
 }
 
+function decodeXmlEntities(text) {
+  return text
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&quot;', '"')
+    .replaceAll('&apos;', "'")
+    .replaceAll('&amp;', '&');
+}
+
+function parseAttributes(tagSource) {
+  const attrs = {};
+  const attrRe = /([a-zA-Z_:][\w:.-]*)="([^"]*)"/g;
+  let match = attrRe.exec(tagSource);
+  while (match) {
+    attrs[match[1]] = decodeXmlEntities(match[2]);
+    match = attrRe.exec(tagSource);
+  }
+  return attrs;
+}
+
+function parseTestcases(xml) {
+  const cases = [];
+  const caseRe = /<testcase\b([\s\S]*?)(?:\/>|>([\s\S]*?)<\/testcase>)/g;
+  let match = caseRe.exec(xml);
+  while (match) {
+    const attrs = parseAttributes(match[1] ?? '');
+    const body = match[2] ?? '';
+    const failureTag = body.match(/<failure\b[\s\S]*?message="([^"]*)"[\s\S]*?<\/failure>/);
+    const skippedTag = body.match(/<skipped\b[\s\S]*?>/);
+    const durationMs = Number.isFinite(Number(attrs.time)) ? Math.round(Number(attrs.time) * 1000) : 0;
+    let status = 'pass';
+    if (skippedTag) status = 'skipped';
+    if (failureTag) status = 'fail';
+    cases.push({
+      name: attrs.name || '(unnamed testcase)',
+      durationMs,
+      status,
+      failureMessage: failureTag ? decodeXmlEntities(failureTag[1] ?? 'failed') : null,
+    });
+    match = caseRe.exec(xml);
+  }
+  return cases;
+}
+
+function readJUnit(path, suiteName) {
+  if (!existsSync(path)) return null;
+  try {
+    const xml = readFileSync(path, 'utf8');
+    const cases = parseTestcases(xml);
+    const tests = cases.length;
+    const failures = cases.filter((c) => c.status === 'fail').length;
+    const skipped = cases.filter((c) => c.status === 'skipped').length;
+    const passed = Math.max(tests - failures - skipped, 0);
+    const durationMs = cases.reduce((sum, c) => sum + c.durationMs, 0);
+    return { suiteName, tests, failures, skipped, passed, durationMs, cases };
+  } catch {
+    return null;
+  }
+}
+
+function printSuiteSummaryRow(summary) {
+  const durationSec = (summary.durationMs / 1000).toFixed(2).padStart(7, ' ');
+  const tests = String(summary.tests).padStart(4, ' ');
+  const pass = String(summary.passed).padStart(4, ' ');
+  const fail = String(summary.failures).padStart(4, ' ');
+  const skip = String(summary.skipped).padStart(4, ' ');
+  console.log(`  ${summary.suiteName.padEnd(12, ' ')} tests:${tests} pass:${pass} fail:${fail} skip:${skip} time:${durationSec}s`);
+}
+
+function printTestSummary(cwd, key) {
+  const suiteMap = {
+    unit: readJUnit(resolve(cwd, 'out/test-results/unit.junit.xml'), 'unit'),
+    integration: readJUnit(resolve(cwd, 'out/test-results/integration.junit.xml'), 'integration'),
+    e2e: readJUnit(resolve(cwd, 'out/test-results/e2e/junit.xml'), 'e2e'),
+    'e2e-staging': readJUnit(resolve(cwd, 'out/test-results/e2e-staging/junit.xml'), 'e2e-staging'),
+  };
+
+  let expectedSuiteKeys = ['unit', 'integration', 'e2e', 'e2e-staging'];
+  if (key === 'unit') expectedSuiteKeys = ['unit'];
+  if (key === 'integration') expectedSuiteKeys = ['integration'];
+  if (key === 'e2eSmoke' || key === 'e2eFull') expectedSuiteKeys = ['e2e'];
+  if (key === 'stagingSmoke' || key === 'stagingFull') expectedSuiteKeys = ['e2e-staging'];
+  if (key === 'ci') expectedSuiteKeys = ['unit', 'integration', 'e2e'];
+
+  const suites = expectedSuiteKeys
+    .map((suiteKey) => suiteMap[suiteKey])
+    .filter(Boolean);
+
+  if (suites.length === 0) return;
+
+  const total = suites.reduce((acc, suite) => ({
+    tests: acc.tests + suite.tests,
+    passed: acc.passed + suite.passed,
+    failures: acc.failures + suite.failures,
+    skipped: acc.skipped + suite.skipped,
+    durationMs: acc.durationMs + suite.durationMs,
+  }), { tests: 0, passed: 0, failures: 0, skipped: 0, durationMs: 0 });
+
+  console.log('\n=== Firestack Test Report ===');
+  console.log(`  command: ${key}`);
+  suites.forEach((suite) => printSuiteSummaryRow(suite));
+  const totalSec = (total.durationMs / 1000).toFixed(2);
+  console.log('-----------------------------');
+  console.log(`  total       tests:${String(total.tests).padStart(4, ' ')} pass:${String(total.passed).padStart(4, ' ')} fail:${String(total.failures).padStart(4, ' ')} skip:${String(total.skipped).padStart(4, ' ')} time:${totalSec.padStart(7, ' ')}s`);
+
+  const failedCases = suites.flatMap((suite) => suite.cases
+    .filter((testcase) => testcase.status === 'fail')
+    .slice(0, 5)
+    .map((testcase) => ({ suiteName: suite.suiteName, testcase })));
+  if (failedCases.length > 0) {
+    console.log('  failures:');
+    failedCases.forEach(({ suiteName, testcase }) => {
+      const message = testcase.failureMessage ? ` -> ${testcase.failureMessage}` : '';
+      console.log(`    - [${suiteName}] ${testcase.name}${message}`);
+    });
+  }
+}
+
 export function runTest(argv) {
   const args = {
     target: process.cwd(),
     config: null,
     docker: false,
+    dockerRebuild: false,
     ci: false,
     unit: false,
     integration: false,
@@ -189,6 +306,7 @@ export function runTest(argv) {
       continue;
     }
     if (token === '--docker') { args.docker = true; continue; }
+    if (token === '--docker-rebuild') { args.dockerRebuild = true; continue; }
     if (token === '--ci') { args.ci = true; continue; }
     if (token === '--unit') { args.unit = true; continue; }
     if (token === '--integration') { args.integration = true; continue; }
@@ -218,8 +336,9 @@ export function runTest(argv) {
   }
 
   if (!args.docker) {
-    runShell(args.target, command, key, testEnv);
-    return;
+    const status = runShell(args.target, command, key, testEnv);
+    printTestSummary(args.target, key);
+    process.exit(status);
   }
 
   const dockerConfig = config.test?.docker ?? {};
@@ -242,6 +361,7 @@ export function runTest(argv) {
     logPrefix,
     dockerConfig,
     env: testEnv,
+    forceRebuild: args.dockerRebuild,
   });
   task.prepare();
 
@@ -259,9 +379,12 @@ export function runTest(argv) {
 
   console.log(`${logPrefix} image: ${task.image}`);
   console.log(`${logPrefix} node_modules volume: ${task.nodeModulesVolume}`);
+  console.log(`${logPrefix} emulator cache volume: ${task.emulatorCacheVolume}`);
 
-  task.run({
+  const status = task.run({
     command: setup.join(' && '),
     envNames: passThrough,
   });
+  printTestSummary(args.target, key);
+  process.exit(status);
 }

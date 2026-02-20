@@ -18,7 +18,7 @@ Usage:
   firestack install [--target <dir>] [--dry-run] [--force]
   firestack init [--target <dir>] [--dry-run] [--force]
   firestack env [--development|--staging|--production|--all] [--force] [--target <dir>] [--config <path>]
-  firestack test [--ci|--unit|--integration|--e2e|--staging] [--docker] [--full] [--target <dir>] [--config <path>]
+  firestack test [--ci|--unit|--integration|--e2e|--staging] [--docker] [--docker-rebuild] [--full] [--target <dir>] [--config <path>]
   firestack version
   firestack help`);
 }
