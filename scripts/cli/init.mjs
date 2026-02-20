@@ -1,4 +1,4 @@
-import { cpSync, existsSync } from 'node:fs';
+import { cpSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -8,6 +8,34 @@ const TEMPLATE_PLAYWRIGHT_CONFIG = join(ROOT, 'templates', 'playwright.config.mj
 
 function printHelp() {
   console.log('Usage: firestack init [--target <dir>] [--force] [--dry-run]');
+}
+
+function ensureOutIgnored(targetDir, dryRun) {
+  const gitignorePath = join(targetDir, '.gitignore');
+  const desiredEntry = 'out/';
+  const hasGitignore = existsSync(gitignorePath);
+  const content = hasGitignore ? readFileSync(gitignorePath, 'utf8') : '';
+  const normalizedLines = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const alreadyIgnored = normalizedLines.some((line) => line === desiredEntry || line === 'out' || line === '/out/');
+  if (alreadyIgnored) {
+    console.log(`[firestack] .gitignore already contains ${desiredEntry}`);
+    return;
+  }
+
+  if (dryRun) {
+    console.log(`[firestack] would add ${desiredEntry} to ${gitignorePath}`);
+    return;
+  }
+
+  const endsWithNewline = content === '' || content.endsWith('\n');
+  const prefix = content === '' || endsWithNewline ? '' : '\n';
+  const next = `${content}${prefix}${desiredEntry}\n`;
+  writeFileSync(gitignorePath, next, 'utf8');
+  console.log(`[firestack] updated ${gitignorePath} with ${desiredEntry}`);
 }
 
 export function runInit(argv) {
@@ -61,6 +89,7 @@ export function runInit(argv) {
   if (skippedExisting) {
     console.log('[firestack] use --force to overwrite existing files');
   }
+  ensureOutIgnored(args.target, args.dryRun);
   if (args.dryRun) {
     console.log('[firestack] dry-run mode: no files were written');
   }

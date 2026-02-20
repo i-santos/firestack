@@ -40,11 +40,11 @@
     "commands": {
       "unit": "mkdir -p out/test-results && node --test --experimental-strip-types --test-reporter=junit --test-reporter-destination=out/test-results/unit.junit.xml tests/unit/**/*.test.ts",
       "integration": "npm --prefix functions run build && npx firebase-tools emulators:exec --project ${GCLOUD_PROJECT:?Set GCLOUD_PROJECT} \"node scripts/run-integration-report.mjs\"",
-      "e2eSmoke": "mkdir -p out/test-results/e2e && rm -f out/test-results/e2e/junit.xml && rm -rf out/test-results/e2e/html test-results && PLAYWRIGHT_JUNIT_OUTPUT_FILE=out/test-results/e2e/junit.xml node scripts/run-e2e.mjs smoke && if [ -d playwright-report ]; then mkdir -p out/test-results/e2e/html && cp -a playwright-report/. out/test-results/e2e/html/; fi && rm -rf test-results",
-      "e2eFull": "mkdir -p out/test-results/e2e && rm -f out/test-results/e2e/junit.xml && rm -rf out/test-results/e2e/html test-results && PLAYWRIGHT_JUNIT_OUTPUT_FILE=out/test-results/e2e/junit.xml node scripts/run-e2e.mjs full && if [ -d playwright-report ]; then mkdir -p out/test-results/e2e/html && cp -a playwright-report/. out/test-results/e2e/html/; fi && rm -rf test-results",
-      "stagingSmoke": "mkdir -p out/test-results/e2e-staging && rm -f out/test-results/e2e-staging/junit.xml && rm -rf out/test-results/e2e-staging/html test-results && PLAYWRIGHT_JUNIT_OUTPUT_FILE=out/test-results/e2e-staging/junit.xml node --env-file-if-exists=.env.test.staging scripts/run-e2e-staging.mjs smoke && if [ -d playwright-report ]; then mkdir -p out/test-results/e2e-staging/html && cp -a playwright-report/. out/test-results/e2e-staging/html/; fi && rm -rf test-results",
-      "stagingFull": "mkdir -p out/test-results/e2e-staging && rm -f out/test-results/e2e-staging/junit.xml && rm -rf out/test-results/e2e-staging/html test-results && PLAYWRIGHT_JUNIT_OUTPUT_FILE=out/test-results/e2e-staging/junit.xml node --env-file-if-exists=.env.test.staging scripts/run-e2e-staging.mjs full && if [ -d playwright-report ]; then mkdir -p out/test-results/e2e-staging/html && cp -a playwright-report/. out/test-results/e2e-staging/html/; fi && rm -rf test-results",
-      "ci": "mkdir -p out/test-results out/test-results/e2e && node --test --experimental-strip-types --test-reporter=junit --test-reporter-destination=out/test-results/unit.junit.xml tests/unit/**/*.test.ts && npm --prefix functions run build && npx firebase-tools emulators:exec --project ${GCLOUD_PROJECT:?Set GCLOUD_PROJECT} \"node scripts/run-integration-report.mjs && PLAYWRIGHT_JUNIT_OUTPUT_FILE=out/test-results/e2e/junit.xml node scripts/run-e2e.mjs smoke\" && rm -rf out/test-results/e2e/html && if [ -d playwright-report ]; then mkdir -p out/test-results/e2e/html && cp -a playwright-report/. out/test-results/e2e/html/; fi && rm -rf test-results"
+      "e2eSmoke": "mkdir -p out/test-results/e2e && rm -f out/test-results/e2e/junit.xml && rm -rf out/test-results/e2e/html test-results && PLAYWRIGHT_JUNIT_OUTPUT_FILE=out/test-results/e2e/junit.xml PLAYWRIGHT_HTML_OUTPUT_DIR=out/test-results/e2e/html node scripts/run-e2e.mjs smoke && rm -rf test-results",
+      "e2eFull": "mkdir -p out/test-results/e2e && rm -f out/test-results/e2e/junit.xml && rm -rf out/test-results/e2e/html test-results && PLAYWRIGHT_JUNIT_OUTPUT_FILE=out/test-results/e2e/junit.xml PLAYWRIGHT_HTML_OUTPUT_DIR=out/test-results/e2e/html node scripts/run-e2e.mjs full && rm -rf test-results",
+      "stagingSmoke": "mkdir -p out/test-results/e2e-staging && rm -f out/test-results/e2e-staging/junit.xml && rm -rf out/test-results/e2e-staging/html test-results && PLAYWRIGHT_JUNIT_OUTPUT_FILE=out/test-results/e2e-staging/junit.xml PLAYWRIGHT_HTML_OUTPUT_DIR=out/test-results/e2e-staging/html node --env-file-if-exists=.env.test.staging scripts/run-e2e-staging.mjs smoke && rm -rf test-results",
+      "stagingFull": "mkdir -p out/test-results/e2e-staging && rm -f out/test-results/e2e-staging/junit.xml && rm -rf out/test-results/e2e-staging/html test-results && PLAYWRIGHT_JUNIT_OUTPUT_FILE=out/test-results/e2e-staging/junit.xml PLAYWRIGHT_HTML_OUTPUT_DIR=out/test-results/e2e-staging/html node --env-file-if-exists=.env.test.staging scripts/run-e2e-staging.mjs full && rm -rf test-results",
+      "ci": "mkdir -p out/test-results out/test-results/e2e && node --test --experimental-strip-types --test-reporter=junit --test-reporter-destination=out/test-results/unit.junit.xml tests/unit/**/*.test.ts && npm --prefix functions run build && npx firebase-tools emulators:exec --project ${GCLOUD_PROJECT:?Set GCLOUD_PROJECT} \"node scripts/run-integration-report.mjs && PLAYWRIGHT_JUNIT_OUTPUT_FILE=out/test-results/e2e/junit.xml PLAYWRIGHT_HTML_OUTPUT_DIR=out/test-results/e2e/html node scripts/run-e2e.mjs smoke\" && rm -rf test-results"
     },
     "docker": {
       "dockerfile": "tests/integration/Dockerfile",
@@ -56,8 +56,7 @@
       "runAsHostUser": true,
       "preloadFirestoreEmulator": true,
       "writablePaths": [
-        "out",
-        "playwright-report"
+        "out"
       ],
       "bootstrapCommand": "if [ ! -d /work/node_modules/firebase ]; then mkdir -p /work/node_modules && cp -a /opt/deps/node_modules/. /work/node_modules/; fi",
       "cleanup": true,

@@ -24,6 +24,7 @@ npx firestack test --ci --docker --docker-rebuild
 ### `init`
 
 Cria `firestack.config.json` e `playwright.config.mjs` no projeto alvo.
+O template de Playwright centraliza artefatos em `out/test-results/...` por padrão.
 
 ### `env`
 
@@ -117,6 +118,7 @@ Guards compatíveis com os scripts legados:
 `runAsHostUser: true` mantém escrita no bind mount com UID/GID do host.
 Para lockfiles com pacotes em registry local (`127.0.0.1`), use `buildNetwork: "host"` no Linux para o `npm ci` do build enxergar o Verdaccio do host.
 `writablePaths` define diretórios no bind mount que o runner prepara com permissão de escrita para gerar artefatos.
+Para E2E, o FireStack também detecta caminhos locais de output no `playwright.config.*` e libera escrita automaticamente.
 
 Layout recomendado de artefatos (centralizado):
 - `out/test-results/unit.junit.xml`

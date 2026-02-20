@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, isAbsolute, normalize, relative, resolve } from 'node:path';
 import { loadProjectConfig } from './config.mjs';
 import { createDockerTask, defaultBootstrapCommand } from './docker-runner.mjs';
 
@@ -159,6 +159,109 @@ function buildDockerLogPrefix(key) {
   if (key === 'stagingSmoke' || key === 'stagingFull') return '[test:e2e:staging:docker]';
   if (key === 'e2eSmoke' || key === 'e2eFull') return '[test:e2e:docker]';
   return '[test:docker]';
+}
+
+function parsePlaywrightConfigPathFromCommand(command) {
+  const fromEquals = command.match(/--config=([^\s"'`]+)/);
+  if (fromEquals) return fromEquals[1];
+  const fromSpace = command.match(/--config\s+([^\s"'`]+)/);
+  if (fromSpace) return fromSpace[1];
+  return null;
+}
+
+function resolvePlaywrightConfigPath(cwd, command) {
+  const explicit = process.env.PLAYWRIGHT_CONFIG_PATH?.trim() || parsePlaywrightConfigPathFromCommand(command);
+  if (explicit) {
+    const candidate = isAbsolute(explicit) ? explicit : resolve(cwd, explicit);
+    if (existsSync(candidate)) return candidate;
+  }
+
+  const defaultNames = [
+    'playwright.config.ts',
+    'playwright.config.mts',
+    'playwright.config.cts',
+    'playwright.config.js',
+    'playwright.config.mjs',
+    'playwright.config.cjs',
+  ];
+  for (const fileName of defaultNames) {
+    const candidate = resolve(cwd, fileName);
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+function normalizeRelativeWritablePath(cwd, rawPath) {
+  if (typeof rawPath !== 'string') return null;
+  const trimmed = rawPath.trim();
+  if (!trimmed) return null;
+  if (trimmed.includes('://')) return null;
+  if (trimmed.startsWith('~')) return null;
+
+  const absoluteCandidate = isAbsolute(trimmed) ? trimmed : resolve(cwd, trimmed);
+  const rel = relative(cwd, absoluteCandidate);
+  if (!rel || rel === '.') return null;
+  if (rel.startsWith('..') || isAbsolute(rel)) return null;
+  return normalize(rel).replaceAll('\\', '/').replace(/\/+$/, '');
+}
+
+function detectWritablePathsFromPlaywrightConfig(cwd, command, logPrefix) {
+  const configPath = resolvePlaywrightConfigPath(cwd, command);
+  if (!configPath) return [];
+
+  let source = '';
+  try {
+    source = readFileSync(configPath, 'utf8');
+  } catch {
+    return [];
+  }
+
+  const paths = new Set();
+  const extractors = [
+    /outputFolder\s*:\s*['"`]([^'"`]+)['"`]/g,
+    /outputFile\s*:\s*['"`]([^'"`]+)['"`]/g,
+    /outputDir\s*:\s*['"`]([^'"`]+)['"`]/g,
+  ];
+
+  for (const regex of extractors) {
+    let match = regex.exec(source);
+    while (match) {
+      const raw = match[1];
+      const candidate = regex.source.includes('outputFile') ? dirname(raw) : raw;
+      const normalizedPath = normalizeRelativeWritablePath(cwd, candidate);
+      if (normalizedPath) {
+        paths.add(normalizedPath);
+      } else if (candidate) {
+        console.warn(`${logPrefix} ignored non-local playwright output path: ${candidate}`);
+      }
+      match = regex.exec(source);
+    }
+  }
+
+  return Array.from(paths);
+}
+
+function resolveDockerWritablePaths(cwd, key, command, dockerConfig, logPrefix) {
+  const configured = Array.isArray(dockerConfig.writablePaths) && dockerConfig.writablePaths.length > 0
+    ? dockerConfig.writablePaths
+    : ['out'];
+  const merged = new Set(configured.map((entry) => String(entry).trim()).filter(Boolean));
+  const includesE2E = key === 'ci' || key === 'e2eSmoke' || key === 'e2eFull' || key === 'stagingSmoke' || key === 'stagingFull';
+
+  if (!includesE2E) {
+    return Array.from(merged);
+  }
+
+  const fromPlaywright = detectWritablePathsFromPlaywrightConfig(cwd, command, logPrefix);
+  for (const path of fromPlaywright) {
+    merged.add(path);
+  }
+
+  if (fromPlaywright.length === 0) {
+    merged.add('out');
+  }
+
+  return Array.from(merged);
 }
 
 function decodeXmlEntities(text) {
@@ -356,10 +459,14 @@ export function runTest(argv) {
     validateStagingBaseUrl(testEnv.E2E_BASE_URL ?? 'https://staging.presentgoal.com', testEnv, logPrefix);
   }
 
+  const writablePaths = resolveDockerWritablePaths(args.target, key, command, dockerConfig, logPrefix);
   const task = createDockerTask({
     cwd: args.target,
     logPrefix,
-    dockerConfig,
+    dockerConfig: {
+      ...dockerConfig,
+      writablePaths,
+    },
     env: testEnv,
     forceRebuild: args.dockerRebuild,
   });
