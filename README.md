@@ -66,7 +66,7 @@ npx firestack test --e2e --full
 npx firestack test --staging --full --docker
 ```
 
-## Docker + Registry local (host)
+## Docker (Imagem + Rebuild Inteligente)
 
 Configure no `firestack.config.json`:
 
@@ -74,34 +74,30 @@ Configure no `firestack.config.json`:
 {
   "test": {
     "docker": {
+      "dockerfile": "tests/integration/Dockerfile",
+      "imageBaseName": "firestack-tests",
+      "nodeModulesVolumePrefix": "firestack-node_modules-",
+      "bootstrapCommand": "if [ ! -d /work/node_modules/firebase ]; then mkdir -p /work/node_modules && cp -a /opt/deps/node_modules/. /work/node_modules/; fi",
       "runAsHostUser": true,
       "addHosts": ["host.docker.internal:host-gateway"],
-      "registry": {
-        "defaultHostUrl": "http://127.0.0.1:4873",
-        "defaultDockerUrl": "http://host.docker.internal:4873",
-        "mappings": [
-          {
-            "scope": "@igorsantos-dev",
-            "hostUrl": "http://127.0.0.1:4873",
-            "dockerUrl": "http://host.docker.internal:4873"
-          },
-          {
-            "scope": "@outra-scope",
-            "hostUrl": "http://127.0.0.1:4874",
-            "dockerUrl": "http://host.docker.internal:4874"
-          }
-        ]
-      }
+      "stagingProjectId": "staging-present-goal"
     }
   }
 }
 ```
 
-`mappings` permite quantos `scope -> registry` forem necessários.
-`hostUrl` é para host; `dockerUrl` é para container.
-No Docker, o runner aplica todos os mappings e define `npm config set replace-registry-host always` para evitar lockfile preso em `127.0.0.1`.
-Por padrão, `runAsHostUser` é `true`, então o container roda com o mesmo UID/GID do host para evitar arquivos `root` no bind mount (ex.: `node_modules`).
-Com `runAsHostUser: true`, o cache npm padrão é `/work/.firestack/npm-cache` (mapeado para `.firestack/npm-cache` no projeto); `npmCacheVolume` só é usado quando `runAsHostUser` estiver `false`.
+No modo `--docker`, o FireStack:
+- builda imagem com tag baseada em hash de `Dockerfile` + lockfile + deps do `package.json`;
+- reutiliza imagem/volume quando o hash não muda;
+- faz rebuild automático quando deps mudam;
+- monta `node_modules` em volume dedicado por hash para acelerar as execuções.
+
+Guards compatíveis com os scripts legados:
+- `ci --docker` bloqueia `E2E_BASE_URL` externo (a menos de `ALLOW_NON_STAGING_E2E=true`);
+- `e2e --docker` valida host permitido para `E2E_BASE_URL`;
+- `staging --docker` valida `GCLOUD_PROJECT` e host staging.
+
+`runAsHostUser: true` mantém escrita no bind mount com UID/GID do host.
 
 ## Publish flow (Verdaccio local)
 

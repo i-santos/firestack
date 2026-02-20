@@ -47,22 +47,32 @@
       "ci": "node --test --experimental-strip-types tests/unit/**/*.test.ts && npm --prefix functions run build && npx firebase-tools emulators:exec --project ${GCLOUD_PROJECT:?Set GCLOUD_PROJECT} \"node scripts/run-integration-report.mjs && node scripts/run-e2e.mjs smoke\""
     },
     "docker": {
-      "image": "node:22-bookworm",
+      "dockerfile": "tests/integration/Dockerfile",
+      "imageBaseName": "firestack-tests",
+      "nodeModulesVolumePrefix": "firestack-node_modules-",
       "workdir": "/work",
       "runAsHostUser": true,
-      "installCommand": "npm ci",
-      "npmCacheVolume": "firestack-npm-cache",
+      "bootstrapCommand": "if [ ! -d /work/node_modules/firebase ]; then mkdir -p /work/node_modules && cp -a /opt/deps/node_modules/. /work/node_modules/; fi",
+      "cleanup": true,
+      "stagingProjectId": "staging-present-goal",
       "addHosts": [
         "host.docker.internal:host-gateway"
       ],
       "passThroughEnv": [
         "GCLOUD_PROJECT",
         "FIREBASE_PROJECT_ALIAS",
+        "ALLOW_NON_STAGING_E2E",
         "E2E_BASE_URL",
         "E2E_CLEANUP",
         "E2E_RUN_ID",
         "E2E_EMAIL",
         "E2E_PASSWORD",
+        "E2E_STAGING_EMAIL",
+        "E2E_STAGING_PASSWORD",
+        "E2E_STAGING_SMOKE_EMAIL",
+        "E2E_STAGING_SMOKE_PASSWORD",
+        "E2E_STAGING_FULL_EMAIL",
+        "E2E_STAGING_FULL_PASSWORD",
         "E2E_APP_CHECK_DEBUG_TOKEN",
         "FIREBASE_AUTH_EMULATOR_HOST",
         "FIRESTORE_EMULATOR_HOST",
@@ -70,18 +80,7 @@
         "VITE_FIREBASE_EMULATOR_HOST",
         "STRIPE_WEBHOOK_SECRET",
         "STRIPE_SECRET_KEY"
-      ],
-      "registry": {
-        "defaultHostUrl": "http://127.0.0.1:4873",
-        "defaultDockerUrl": "http://host.docker.internal:4873",
-        "mappings": [
-          {
-            "scope": "@igorsantos-dev",
-            "hostUrl": "http://127.0.0.1:4873",
-            "dockerUrl": "http://host.docker.internal:4873"
-          }
-        ]
-      }
+      ]
     }
   }
 }

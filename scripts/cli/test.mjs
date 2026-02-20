@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { loadProjectConfig } from './config.mjs';
+import { createDockerTask, defaultBootstrapCommand } from './docker-runner.mjs';
 
 function printHelp() {
   console.log('Usage: firestack test [--ci|--unit|--integration|--e2e|--staging] [--docker] [--full] [--target <dir>] [--config <path>]');
@@ -84,106 +85,82 @@ function mapCommandKey(args) {
   return 'ci';
 }
 
-function normalizeRegistryUrl(rawUrl) {
-  if (!rawUrl) return null;
-  const url = new URL(rawUrl);
-  if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
-    url.hostname = 'host.docker.internal';
-  }
-  return url.toString().replace(/\/$/, '');
+function isOverrideAllowed(env = process.env) {
+  return env.ALLOW_NON_STAGING_E2E === 'true';
 }
 
 function escapeShell(value) {
   return `'${String(value).replace(/'/g, `'\"'\"'`)}'`;
 }
 
-function buildRegistrySetupCommands(registryConfig) {
-  const mappings = Array.isArray(registryConfig.mappings) ? registryConfig.mappings : [];
-  const commands = [];
-  const defaultDockerUrl = normalizeRegistryUrl(registryConfig.defaultDockerUrl ?? registryConfig.dockerUrl ?? '');
+function assertNoExternalBaseUrlForCi(env, logPrefix) {
+  const raw = env.E2E_BASE_URL?.trim();
+  if (!raw) return;
+  if (isOverrideAllowed(env)) return;
+  throw new Error(
+    `${logPrefix} refusing E2E_BASE_URL in CI docker gate. Allowed targets are local emulators only. ` +
+    'Set ALLOW_NON_STAGING_E2E=true to override explicitly.'
+  );
+}
 
-  // Always set a default registry in Docker so npm can rewrite lockfile-hosted URLs consistently.
-  if (defaultDockerUrl) {
-    commands.push(`npm config set registry ${escapeShell(defaultDockerUrl)}`);
+function normalizeHost(rawUrl) {
+  const url = new URL(rawUrl);
+  return url.hostname.toLowerCase();
+}
+
+function validateExternalBaseUrl(baseUrl, env, logPrefix) {
+  if (!baseUrl) return;
+  if (isOverrideAllowed(env)) return;
+
+  let host;
+  try {
+    host = normalizeHost(baseUrl);
+  } catch {
+    throw new Error(`${logPrefix} invalid E2E_BASE_URL: ${baseUrl}`);
   }
 
-  for (const mapping of mappings) {
-    if (!mapping || typeof mapping !== 'object') continue;
-    const scope = typeof mapping.scope === 'string' ? mapping.scope.trim() : '';
-    const dockerUrl = normalizeRegistryUrl(
-      mapping.dockerUrl ?? mapping.url ?? registryConfig.defaultDockerUrl ?? registryConfig.dockerUrl ?? ''
+  const allowedHosts = new Set(['localhost', '127.0.0.1', 'staging.presentgoal.com']);
+  if (!allowedHosts.has(host)) {
+    throw new Error(
+      `${logPrefix} refusing E2E_BASE_URL host "${host}". Allowed: localhost, 127.0.0.1, staging.presentgoal.com. ` +
+      'Set ALLOW_NON_STAGING_E2E=true to override explicitly.'
     );
-    if (!dockerUrl) continue;
-
-    if (scope) {
-      commands.push(`npm config set ${escapeShell(`${scope}:registry`)} ${escapeShell(dockerUrl)}`);
-    } else {
-      commands.push(`npm config set registry ${escapeShell(dockerUrl)}`);
-    }
   }
-
-  if (commands.length > 0) {
-    commands.push('npm config set replace-registry-host always');
-  }
-
-  return commands;
 }
 
-function buildDockerCommand(command, dockerConfig, runtime = {}) {
-  const installCommand = dockerConfig.installCommand ?? 'npm ci';
-  const registry = dockerConfig.registry ?? {};
-  const npmCachePath = runtime.npmCachePath ?? '/root/.npm';
-  const homeDir = runtime.homeDir ?? '/root';
+function validateStagingBaseUrl(baseUrl, env, logPrefix) {
+  if (!baseUrl) return;
+  if (isOverrideAllowed(env)) return;
 
-  const setup = [];
-  setup.push(`mkdir -p ${escapeShell(homeDir)} ${escapeShell(npmCachePath)}`);
-  setup.push(...buildRegistrySetupCommands(registry));
-  setup.push(installCommand);
-  setup.push(command);
+  let host;
+  try {
+    host = normalizeHost(baseUrl);
+  } catch {
+    throw new Error(`${logPrefix} invalid E2E_BASE_URL: ${baseUrl}`);
+  }
 
-  return setup.join(' && ');
+  if (host !== 'staging.presentgoal.com') {
+    throw new Error(
+      `${logPrefix} refusing E2E_BASE_URL host "${host}" for staging runner. Allowed only: staging.presentgoal.com. ` +
+      'Set ALLOW_NON_STAGING_E2E=true to override explicitly.'
+    );
+  }
 }
 
-function buildDockerArgs(cwd, command, dockerConfig, env = process.env) {
-  const image = dockerConfig.image ?? 'node:22-bookworm';
-  const workdir = dockerConfig.workdir ?? '/work';
-  const npmCacheVolume = dockerConfig.npmCacheVolume ?? 'firestack-npm-cache';
-  const addHosts = Array.isArray(dockerConfig.addHosts) ? dockerConfig.addHosts : ['host.docker.internal:host-gateway'];
-  const passThrough = Array.isArray(dockerConfig.passThroughEnv) ? dockerConfig.passThroughEnv : [];
-  const runAsHostUser = dockerConfig.runAsHostUser !== false;
-  const supportsUidGid = typeof process.getuid === 'function' && typeof process.getgid === 'function';
-  const useHostUser = runAsHostUser && supportsUidGid;
-  const userArg = useHostUser ? [`${process.getuid()}:${process.getgid()}`] : null;
-  const npmCachePath = useHostUser
-    ? (dockerConfig.npmCachePath ?? `${workdir}/.firestack/npm-cache`)
-    : '/root/.npm';
-  const homeDir = useHostUser ? (dockerConfig.homeDir ?? '/tmp/firestack-home') : '/root';
+function requireProject(expectedProjectId, currentProjectId, logPrefix) {
+  if (currentProjectId !== expectedProjectId) {
+    throw new Error(`${logPrefix} refusing to run with GCLOUD_PROJECT=${currentProjectId}. Expected ${expectedProjectId}.`);
+  }
+  return currentProjectId;
+}
 
-  const envArgs = passThrough
-    .filter((name) => typeof env[name] === 'string' && env[name] !== '')
-    .flatMap((name) => ['-e', `${name}=${env[name]}`]);
-  envArgs.push('-e', `HOME=${homeDir}`, '-e', `npm_config_cache=${npmCachePath}`);
-
-  const hostArgs = addHosts.flatMap((entry) => ['--add-host', entry]);
-  const userArgs = userArg ? ['--user', userArg[0]] : [];
-  const cacheVolumeArgs = useHostUser ? [] : ['-v', `${npmCacheVolume}:${npmCachePath}`];
-
-  return [
-    'run',
-    '--rm',
-    '-t',
-    '--init',
-    ...userArgs,
-    ...hostArgs,
-    '-v', `${cwd}:${workdir}`,
-    ...cacheVolumeArgs,
-    '-w', workdir,
-    ...envArgs,
-    image,
-    'bash',
-    '-lc',
-    buildDockerCommand(command, dockerConfig, { npmCachePath, homeDir }),
-  ];
+function buildDockerLogPrefix(key) {
+  if (key === 'ci') return '[test:ci:docker]';
+  if (key === 'integration') return '[test:integration:docker]';
+  if (key === 'unit') return '[test:unit:docker]';
+  if (key === 'stagingSmoke' || key === 'stagingFull') return '[test:e2e:staging:docker]';
+  if (key === 'e2eSmoke' || key === 'e2eFull') return '[test:e2e:docker]';
+  return '[test:docker]';
 }
 
 export function runTest(argv) {
@@ -246,13 +223,45 @@ export function runTest(argv) {
   }
 
   const dockerConfig = config.test?.docker ?? {};
-  const dockerArgs = buildDockerArgs(args.target, command, dockerConfig, testEnv);
+  const logPrefix = buildDockerLogPrefix(key);
+  const externalBaseUrl = testEnv.E2E_BASE_URL?.trim();
+  const passThrough = Array.isArray(dockerConfig.passThroughEnv) ? dockerConfig.passThroughEnv : [];
 
-  const result = spawnSync('docker', dockerArgs, { stdio: 'inherit' });
-  if (result.error) {
-    throw new Error(`docker: ${result.error.message}`);
+  if (key === 'ci') {
+    assertNoExternalBaseUrlForCi(testEnv, logPrefix);
+  } else if (key === 'e2eSmoke' || key === 'e2eFull') {
+    validateExternalBaseUrl(externalBaseUrl, testEnv, logPrefix);
+  } else if (key === 'stagingSmoke' || key === 'stagingFull') {
+    const expectedProjectId = dockerConfig.stagingProjectId ?? 'staging-present-goal';
+    requireProject(expectedProjectId, testEnv.GCLOUD_PROJECT ?? expectedProjectId, logPrefix);
+    validateStagingBaseUrl(testEnv.E2E_BASE_URL ?? 'https://staging.presentgoal.com', testEnv, logPrefix);
   }
-  if ((result.status ?? 1) !== 0) {
-    process.exit(result.status ?? 1);
+
+  const task = createDockerTask({
+    cwd: args.target,
+    logPrefix,
+    dockerConfig,
+    env: testEnv,
+  });
+  task.prepare();
+
+  const bootstrapCommand = dockerConfig.bootstrapCommand ?? defaultBootstrapCommand();
+  const projectId = testEnv.GCLOUD_PROJECT ?? 'demo-present-goal';
+  const dockerSuiteCommand = (key === 'e2eSmoke' || key === 'e2eFull') && !externalBaseUrl
+    ? `npm --prefix functions run build && npx firebase-tools emulators:exec --project ${escapeShell(projectId)} ${escapeShell(command)}`
+    : command;
+  const setup = [];
+  if (bootstrapCommand) setup.push(bootstrapCommand);
+  if (dockerConfig.installEveryRun === true) {
+    setup.push(dockerConfig.installCommand ?? 'npm ci');
   }
+  setup.push(dockerSuiteCommand);
+
+  console.log(`${logPrefix} image: ${task.image}`);
+  console.log(`${logPrefix} node_modules volume: ${task.nodeModulesVolume}`);
+
+  task.run({
+    command: setup.join(' && '),
+    envNames: passThrough,
+  });
 }
