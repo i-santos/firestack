@@ -77,10 +77,15 @@ Configure no `firestack.config.json`:
       "dockerfile": "tests/integration/Dockerfile",
       "imageBaseName": "firestack-tests",
       "nodeModulesVolumePrefix": "firestack-node_modules-",
+      "buildNetwork": "host",
       "bootstrapCommand": "if [ ! -d /work/node_modules/firebase ]; then mkdir -p /work/node_modules && cp -a /opt/deps/node_modules/. /work/node_modules/; fi",
       "runAsHostUser": true,
       "addHosts": ["host.docker.internal:host-gateway"],
-      "stagingProjectId": "staging-present-goal"
+      "stagingProjectId": "staging-present-goal",
+      "registry": {
+        "defaultHostUrl": "http://127.0.0.1:4873",
+        "defaultDockerUrl": "http://host.docker.internal:4873"
+      }
     }
   }
 }
@@ -98,6 +103,7 @@ Guards compatíveis com os scripts legados:
 - `staging --docker` valida `GCLOUD_PROJECT` e host staging.
 
 `runAsHostUser: true` mantém escrita no bind mount com UID/GID do host.
+Para lockfiles com pacotes em registry local (`127.0.0.1`), use `buildNetwork: "host"` no Linux para o `npm ci` do build enxergar o Verdaccio do host.
 
 ## Publish flow (Verdaccio local)
 

@@ -50,6 +50,7 @@
       "dockerfile": "tests/integration/Dockerfile",
       "imageBaseName": "firestack-tests",
       "nodeModulesVolumePrefix": "firestack-node_modules-",
+      "buildNetwork": "host",
       "workdir": "/work",
       "runAsHostUser": true,
       "bootstrapCommand": "if [ ! -d /work/node_modules/firebase ]; then mkdir -p /work/node_modules && cp -a /opt/deps/node_modules/. /work/node_modules/; fi",
@@ -80,7 +81,11 @@
         "VITE_FIREBASE_EMULATOR_HOST",
         "STRIPE_WEBHOOK_SECRET",
         "STRIPE_SECRET_KEY"
-      ]
+      ],
+      "registry": {
+        "defaultHostUrl": "http://127.0.0.1:4873",
+        "defaultDockerUrl": "http://host.docker.internal:4873"
+      }
     }
   }
 }

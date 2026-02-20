@@ -114,11 +114,19 @@ function cleanupOldDockerArtifacts(logPrefix, imageBaseName, volumePrefix, keepI
   }
 }
 
-function ensureImage(logPrefix, image, dockerfilePath, repoPath, depsHash) {
+function ensureImage(logPrefix, image, dockerfilePath, repoPath, depsHash, buildArgs = []) {
   const imageExists = runDocker(['image', 'inspect', image], { stdio: 'ignore' }).status === 0;
   if (imageExists) return;
   console.log(`${logPrefix} building image ${image} (deps hash: ${depsHash})`);
-  runDockerStrict(logPrefix, 'failed to build docker image', ['build', '-f', dockerfilePath, '-t', image, repoPath], { stdio: 'inherit' });
+  if (buildArgs.length > 0) {
+    console.log(`${logPrefix} building image options: ${buildArgs.join(' ')}`);
+  }
+  runDockerStrict(
+    logPrefix,
+    'failed to build docker image',
+    ['build', ...buildArgs, '-f', dockerfilePath, '-t', image, repoPath],
+    { stdio: 'inherit' }
+  );
 }
 
 function buildEnvArgs(env, envNames) {
@@ -161,12 +169,23 @@ export function createDockerTask({ cwd, logPrefix, dockerConfig, env = process.e
   const useHostUser = runAsHostUser && supportsUidGid;
   const userArgs = useHostUser ? ['--user', `${process.getuid()}:${process.getgid()}`] : [];
   const hostArgs = addHosts.flatMap((entry) => ['--add-host', entry]);
+  const registry = dockerConfig.registry ?? {};
+  const hasLocalHostRegistry =
+    typeof registry.defaultHostUrl === 'string' &&
+    /https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?/i.test(registry.defaultHostUrl);
+  const buildNetwork = dockerConfig.buildNetwork ?? (hasLocalHostRegistry ? 'host' : null);
+  const buildAddHosts = Array.isArray(dockerConfig.buildAddHosts) ? dockerConfig.buildAddHosts : [];
+  const buildHostArgs = buildAddHosts.flatMap((entry) => ['--add-host', entry]);
+  const buildNetworkArgs = typeof buildNetwork === 'string' && buildNetwork.trim() !== ''
+    ? ['--network', buildNetwork.trim()]
+    : [];
+  const imageBuildArgs = [...buildNetworkArgs, ...buildHostArgs];
 
   return {
     image,
     nodeModulesVolume,
     prepare() {
-      ensureImage(logPrefix, image, dockerfilePath, cwd, depsHash);
+      ensureImage(logPrefix, image, dockerfilePath, cwd, depsHash, imageBuildArgs);
       if (dockerConfig.cleanup !== false) {
         cleanupOldDockerArtifacts(logPrefix, imageBaseName, nodeModulesVolumePrefix, image, nodeModulesVolume);
       }
