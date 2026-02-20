@@ -150,6 +150,34 @@ function buildResourceArgs(env = process.env) {
   return args;
 }
 
+function ensureVolumeWritableForUser(logPrefix, image, volumeName, uid, gid, workdir = '/work') {
+  const ownership = `${uid}:${gid}`;
+  const target = `${workdir}/node_modules`;
+  const command = [
+    `mkdir -p ${target}`,
+    `current="$(stat -c '%u:%g' ${target} 2>/dev/null || true)"`,
+    `if [ "$current" != "${ownership}" ]; then chown -R ${ownership} ${target}; fi`,
+  ].join(' && ');
+
+  const result = runDocker([
+    'run',
+    '--rm',
+    '-v',
+    `${volumeName}:${target}`,
+    image,
+    'bash',
+    '-lc',
+    command,
+  ], { stdio: 'inherit' });
+
+  if (result.error) {
+    fail(logPrefix, `failed to prepare node_modules volume permissions: ${result.error.message}`);
+  }
+  if ((result.status ?? 1) !== 0) {
+    process.exit(result.status ?? 1);
+  }
+}
+
 export function defaultBootstrapCommand() {
   return 'if [ ! -d /work/node_modules/firebase ]; then mkdir -p /work/node_modules && cp -a /opt/deps/node_modules/. /work/node_modules/; fi';
 }
@@ -186,6 +214,9 @@ export function createDockerTask({ cwd, logPrefix, dockerConfig, env = process.e
     nodeModulesVolume,
     prepare() {
       ensureImage(logPrefix, image, dockerfilePath, cwd, depsHash, imageBuildArgs);
+      if (useHostUser) {
+        ensureVolumeWritableForUser(logPrefix, image, nodeModulesVolume, process.getuid(), process.getgid(), workdir);
+      }
       if (dockerConfig.cleanup !== false) {
         cleanupOldDockerArtifacts(logPrefix, imageBaseName, nodeModulesVolumePrefix, image, nodeModulesVolume);
       }
