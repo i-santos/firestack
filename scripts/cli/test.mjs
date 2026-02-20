@@ -4,6 +4,31 @@ import { dirname, isAbsolute, normalize, relative, resolve } from 'node:path';
 import { loadProjectConfig } from './config.mjs';
 import { createDockerTask, defaultBootstrapCommand } from './docker-runner.mjs';
 
+const ANSI = {
+  reset: '\x1b[0m',
+  bold: '\x1b[1m',
+  dim: '\x1b[2m',
+  red: '\x1b[31m',
+  green: '\x1b[32m',
+  yellow: '\x1b[33m',
+  cyan: '\x1b[36m',
+};
+
+function supportsAnsiColor() {
+  if (process.env.NO_COLOR) return false;
+  if (process.env.FORCE_COLOR === '0') return false;
+  if (process.env.FORCE_COLOR) return true;
+  if (!process.stdout.isTTY) return false;
+  return process.env.TERM !== 'dumb';
+}
+
+const COLORS_ENABLED = supportsAnsiColor();
+
+function paint(text, ...styles) {
+  if (!COLORS_ENABLED || styles.length === 0) return text;
+  return `${styles.join('')}${text}${ANSI.reset}`;
+}
+
 function printHelp() {
   console.log('Usage: firestack test [--ci|--unit|--integration|--e2e|--staging] [--docker] [--docker-rebuild] [--fail-fast] [--full] [--target <dir>] [--config <path>]');
 }
@@ -343,13 +368,110 @@ function readJUnit(path, suiteName) {
   }
 }
 
-function printSuiteSummaryRow(summary) {
-  const durationSec = (summary.durationMs / 1000).toFixed(2).padStart(7, ' ');
-  const tests = String(summary.tests).padStart(4, ' ');
-  const pass = String(summary.passed).padStart(4, ' ');
-  const fail = String(summary.failures).padStart(4, ' ');
-  const skip = String(summary.skipped).padStart(4, ' ');
-  console.log(`  ${summary.suiteName.padEnd(12, ' ')} | tests ${tests} | pass ${pass} | fail ${fail} | skip ${skip} | time ${durationSec}s`);
+function buildSummaryTable(suites, total) {
+  const rows = suites.map((suite) => ({
+    suite: suite.suiteName,
+    tests: suite.tests,
+    pass: suite.passed,
+    fail: suite.failures,
+    skip: suite.skipped,
+    time: (suite.durationMs / 1000).toFixed(2),
+  }));
+
+  const totalRow = {
+    suite: 'total',
+    tests: total.tests,
+    pass: total.passed,
+    fail: total.failures,
+    skip: total.skipped,
+    time: (total.durationMs / 1000).toFixed(2),
+  };
+
+  const header = {
+    suite: 'suite',
+    tests: 'tests',
+    pass: 'pass',
+    fail: 'fail',
+    skip: 'skip',
+    time: 'time(s)',
+  };
+
+  const widths = {
+    suite: Math.max(header.suite.length, ...rows.map((row) => row.suite.length), totalRow.suite.length),
+    tests: Math.max(header.tests.length, ...rows.map((row) => String(row.tests).length), String(totalRow.tests).length),
+    pass: Math.max(header.pass.length, ...rows.map((row) => String(row.pass).length), String(totalRow.pass).length),
+    fail: Math.max(header.fail.length, ...rows.map((row) => String(row.fail).length), String(totalRow.fail).length),
+    skip: Math.max(header.skip.length, ...rows.map((row) => String(row.skip).length), String(totalRow.skip).length),
+    time: Math.max(header.time.length, ...rows.map((row) => row.time.length), totalRow.time.length),
+  };
+
+  const colorSuite = (value, row, isTotal) => {
+    if (isTotal) return paint(value, ANSI.bold);
+    if (row.fail > 0) return paint(value, ANSI.red);
+    if (row.skip > 0) return paint(value, ANSI.yellow);
+    return paint(value, ANSI.green);
+  };
+
+  const colorPass = (value, isHeader) => (isHeader ? paint(value, ANSI.bold, ANSI.green) : paint(value, ANSI.green));
+  const colorFail = (value, count, isHeader) => {
+    if (isHeader) return paint(value, ANSI.bold, ANSI.red);
+    return count > 0 ? paint(value, ANSI.red) : paint(value, ANSI.dim);
+  };
+  const colorSkip = (value, count, isHeader) => {
+    if (isHeader) return paint(value, ANSI.bold, ANSI.yellow);
+    return count > 0 ? paint(value, ANSI.yellow) : paint(value, ANSI.dim);
+  };
+
+  const formatDataRow = (row, { isTotal = false } = {}) => {
+    const suiteCell = row.suite.padEnd(widths.suite, ' ');
+    const testsCell = String(row.tests).padStart(widths.tests, ' ');
+    const passCell = String(row.pass).padStart(widths.pass, ' ');
+    const failCell = String(row.fail).padStart(widths.fail, ' ');
+    const skipCell = String(row.skip).padStart(widths.skip, ' ');
+    const timeCell = row.time.padStart(widths.time, ' ');
+
+    return (
+      `  ${colorSuite(suiteCell, row, isTotal)} | ` +
+      `${isTotal ? paint(testsCell, ANSI.bold) : testsCell} | ` +
+      `${isTotal ? paint(passCell, ANSI.bold, ANSI.green) : colorPass(passCell, false)} | ` +
+      `${isTotal ? colorFail(paint(failCell, ANSI.bold), row.fail, false) : colorFail(failCell, row.fail, false)} | ` +
+      `${isTotal ? colorSkip(paint(skipCell, ANSI.bold), row.skip, false) : colorSkip(skipCell, row.skip, false)} | ` +
+      `${isTotal ? paint(timeCell, ANSI.bold) : timeCell}`
+    );
+  };
+
+  const formatHeaderRow = () => {
+    const suiteCell = header.suite.padEnd(widths.suite, ' ');
+    const testsCell = header.tests.padStart(widths.tests, ' ');
+    const passCell = header.pass.padStart(widths.pass, ' ');
+    const failCell = header.fail.padStart(widths.fail, ' ');
+    const skipCell = header.skip.padStart(widths.skip, ' ');
+    const timeCell = header.time.padStart(widths.time, ' ');
+    return (
+      `  ${paint(suiteCell, ANSI.bold, ANSI.cyan)} | ` +
+      `${paint(testsCell, ANSI.bold, ANSI.cyan)} | ` +
+      `${colorPass(passCell, true)} | ` +
+      `${colorFail(failCell, 0, true)} | ` +
+      `${colorSkip(skipCell, 0, true)} | ` +
+      `${paint(timeCell, ANSI.bold, ANSI.cyan)}`
+    );
+  };
+
+  const separator = (
+    `  ${'-'.repeat(widths.suite)}-+-` +
+    `${'-'.repeat(widths.tests)}-+-` +
+    `${'-'.repeat(widths.pass)}-+-` +
+    `${'-'.repeat(widths.fail)}-+-` +
+    `${'-'.repeat(widths.skip)}-+-` +
+    `${'-'.repeat(widths.time)}`
+  );
+
+  return {
+    header: formatHeaderRow(),
+    separator: paint(separator, ANSI.dim),
+    rows: rows.map((row) => formatDataRow(row)),
+    total: formatDataRow(totalRow, { isTotal: true }),
+  };
 }
 
 function printTestSummary(cwd, key) {
@@ -383,11 +505,13 @@ function printTestSummary(cwd, key) {
 
   console.log('\n=== Firestack Test Report ===');
   console.log(`  Command: ${key}`);
-  console.log('  ---------------------------------------------------------------');
-  suites.forEach((suite) => printSuiteSummaryRow(suite));
-  const totalSec = (total.durationMs / 1000).toFixed(2);
-  console.log('  ---------------------------------------------------------------');
-  console.log(`  total        | tests ${String(total.tests).padStart(4, ' ')} | pass ${String(total.passed).padStart(4, ' ')} | fail ${String(total.failures).padStart(4, ' ')} | skip ${String(total.skipped).padStart(4, ' ')} | time ${totalSec.padStart(7, ' ')}s`);
+  const table = buildSummaryTable(suites, total);
+  console.log(table.separator);
+  console.log(table.header);
+  console.log(table.separator);
+  table.rows.forEach((row) => console.log(row));
+  console.log(table.separator);
+  console.log(table.total);
 
   const failedCases = suites.flatMap((suite) => suite.cases
     .filter((testcase) => testcase.status === 'fail')
