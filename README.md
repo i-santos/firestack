@@ -74,6 +74,7 @@ Configure no `firestack.config.json`:
 {
   "test": {
     "docker": {
+      "runAsHostUser": true,
       "addHosts": ["host.docker.internal:host-gateway"],
       "registry": {
         "defaultHostUrl": "http://127.0.0.1:4873",
@@ -99,6 +100,8 @@ Configure no `firestack.config.json`:
 `mappings` permite quantos `scope -> registry` forem necessários.
 `hostUrl` é para host; `dockerUrl` é para container.
 No Docker, o runner aplica todos os mappings e define `npm config set replace-registry-host always` para evitar lockfile preso em `127.0.0.1`.
+Por padrão, `runAsHostUser` é `true`, então o container roda com o mesmo UID/GID do host para evitar arquivos `root` no bind mount (ex.: `node_modules`).
+Com `runAsHostUser: true`, o cache npm padrão é `/work/.firestack/npm-cache` (mapeado para `.firestack/npm-cache` no projeto); `npmCacheVolume` só é usado quando `runAsHostUser` estiver `false`.
 
 ## Publish flow (Verdaccio local)
 

@@ -49,6 +49,7 @@
     "docker": {
       "image": "node:22-bookworm",
       "workdir": "/work",
+      "runAsHostUser": true,
       "installCommand": "npm ci",
       "npmCacheVolume": "firestack-npm-cache",
       "addHosts": [

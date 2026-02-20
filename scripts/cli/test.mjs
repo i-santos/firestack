@@ -129,11 +129,14 @@ function buildRegistrySetupCommands(registryConfig) {
   return commands;
 }
 
-function buildDockerCommand(command, dockerConfig) {
+function buildDockerCommand(command, dockerConfig, runtime = {}) {
   const installCommand = dockerConfig.installCommand ?? 'npm ci';
   const registry = dockerConfig.registry ?? {};
+  const npmCachePath = runtime.npmCachePath ?? '/root/.npm';
+  const homeDir = runtime.homeDir ?? '/root';
 
   const setup = [];
+  setup.push(`mkdir -p ${escapeShell(homeDir)} ${escapeShell(npmCachePath)}`);
   setup.push(...buildRegistrySetupCommands(registry));
   setup.push(installCommand);
   setup.push(command);
@@ -147,27 +150,39 @@ function buildDockerArgs(cwd, command, dockerConfig, env = process.env) {
   const npmCacheVolume = dockerConfig.npmCacheVolume ?? 'firestack-npm-cache';
   const addHosts = Array.isArray(dockerConfig.addHosts) ? dockerConfig.addHosts : ['host.docker.internal:host-gateway'];
   const passThrough = Array.isArray(dockerConfig.passThroughEnv) ? dockerConfig.passThroughEnv : [];
+  const runAsHostUser = dockerConfig.runAsHostUser !== false;
+  const supportsUidGid = typeof process.getuid === 'function' && typeof process.getgid === 'function';
+  const useHostUser = runAsHostUser && supportsUidGid;
+  const userArg = useHostUser ? [`${process.getuid()}:${process.getgid()}`] : null;
+  const npmCachePath = useHostUser
+    ? (dockerConfig.npmCachePath ?? `${workdir}/.firestack/npm-cache`)
+    : '/root/.npm';
+  const homeDir = useHostUser ? (dockerConfig.homeDir ?? '/tmp/firestack-home') : '/root';
 
   const envArgs = passThrough
     .filter((name) => typeof env[name] === 'string' && env[name] !== '')
     .flatMap((name) => ['-e', `${name}=${env[name]}`]);
+  envArgs.push('-e', `HOME=${homeDir}`, '-e', `npm_config_cache=${npmCachePath}`);
 
   const hostArgs = addHosts.flatMap((entry) => ['--add-host', entry]);
+  const userArgs = userArg ? ['--user', userArg[0]] : [];
+  const cacheVolumeArgs = useHostUser ? [] : ['-v', `${npmCacheVolume}:${npmCachePath}`];
 
   return [
     'run',
     '--rm',
     '-t',
     '--init',
+    ...userArgs,
     ...hostArgs,
     '-v', `${cwd}:${workdir}`,
-    '-v', `${npmCacheVolume}:/root/.npm`,
+    ...cacheVolumeArgs,
     '-w', workdir,
     ...envArgs,
     image,
     'bash',
     '-lc',
-    buildDockerCommand(command, dockerConfig),
+    buildDockerCommand(command, dockerConfig, { npmCachePath, homeDir }),
   ];
 }
 
