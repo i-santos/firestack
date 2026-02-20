@@ -167,14 +167,14 @@ function ensureBindPathsWritableForUser(logPrefix, image, repoPath, uid, gid, wo
 
   const ownership = `${uid}:${gid}`;
   const pathArgs = sanitized.map((entry) => `"${escapeForDoubleQuotes(entry)}"`).join(' ');
-  const command = [
-    `for rel in ${pathArgs}; do`,
-    `  target="${workdir}/$rel"`,
-    '  mkdir -p "$target"',
-    `  current="$(stat -c '%u:%g' "$target" 2>/dev/null || true)"`,
-    `  if [ "$current" != "${ownership}" ]; then chown -R ${ownership} "$target"; fi`,
-    'done',
-  ].join(' ');
+  const command = `for rel in ${pathArgs}; do
+  target="${workdir}/$rel"
+  mkdir -p "$target"
+  current="$(stat -c '%u:%g' "$target" 2>/dev/null || true)"
+  if [ "$current" != "${ownership}" ]; then
+    chown -R ${ownership} "$target"
+  fi
+done`;
 
   const result = runDocker([
     'run',
