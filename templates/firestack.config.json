@@ -38,13 +38,13 @@
   },
   "test": {
     "commands": {
-      "unit": "node --test --experimental-strip-types tests/unit/**/*.test.ts",
+      "unit": "mkdir -p out/test-results && node --test --experimental-strip-types --test-reporter=junit --test-reporter-destination=out/test-results/unit.junit.xml tests/unit/**/*.test.ts",
       "integration": "npm --prefix functions run build && npx firebase-tools emulators:exec --project ${GCLOUD_PROJECT:?Set GCLOUD_PROJECT} \"node scripts/run-integration-report.mjs\"",
-      "e2eSmoke": "node scripts/run-e2e.mjs smoke",
-      "e2eFull": "node scripts/run-e2e.mjs full",
-      "stagingSmoke": "node --env-file-if-exists=.env.test.staging scripts/run-e2e-staging.mjs smoke",
-      "stagingFull": "node --env-file-if-exists=.env.test.staging scripts/run-e2e-staging.mjs full",
-      "ci": "node --test --experimental-strip-types tests/unit/**/*.test.ts && npm --prefix functions run build && npx firebase-tools emulators:exec --project ${GCLOUD_PROJECT:?Set GCLOUD_PROJECT} \"node scripts/run-integration-report.mjs && node scripts/run-e2e.mjs smoke\""
+      "e2eSmoke": "mkdir -p out/test-results/e2e && rm -f out/test-results/e2e/junit.xml && rm -rf out/test-results/e2e/html && node scripts/run-e2e.mjs smoke && if [ -f test-results/e2e-junit.xml ]; then cp test-results/e2e-junit.xml out/test-results/e2e/junit.xml; fi && if [ -d playwright-report ]; then mkdir -p out/test-results/e2e/html && cp -a playwright-report/. out/test-results/e2e/html/; fi",
+      "e2eFull": "mkdir -p out/test-results/e2e && rm -f out/test-results/e2e/junit.xml && rm -rf out/test-results/e2e/html && node scripts/run-e2e.mjs full && if [ -f test-results/e2e-junit.xml ]; then cp test-results/e2e-junit.xml out/test-results/e2e/junit.xml; fi && if [ -d playwright-report ]; then mkdir -p out/test-results/e2e/html && cp -a playwright-report/. out/test-results/e2e/html/; fi",
+      "stagingSmoke": "mkdir -p out/test-results/e2e-staging && rm -f out/test-results/e2e-staging/junit.xml && rm -rf out/test-results/e2e-staging/html && node --env-file-if-exists=.env.test.staging scripts/run-e2e-staging.mjs smoke && if [ -f test-results/e2e-junit.xml ]; then cp test-results/e2e-junit.xml out/test-results/e2e-staging/junit.xml; fi && if [ -d playwright-report ]; then mkdir -p out/test-results/e2e-staging/html && cp -a playwright-report/. out/test-results/e2e-staging/html/; fi",
+      "stagingFull": "mkdir -p out/test-results/e2e-staging && rm -f out/test-results/e2e-staging/junit.xml && rm -rf out/test-results/e2e-staging/html && node --env-file-if-exists=.env.test.staging scripts/run-e2e-staging.mjs full && if [ -f test-results/e2e-junit.xml ]; then cp test-results/e2e-junit.xml out/test-results/e2e-staging/junit.xml; fi && if [ -d playwright-report ]; then mkdir -p out/test-results/e2e-staging/html && cp -a playwright-report/. out/test-results/e2e-staging/html/; fi",
+      "ci": "mkdir -p out/test-results && node --test --experimental-strip-types --test-reporter=junit --test-reporter-destination=out/test-results/unit.junit.xml tests/unit/**/*.test.ts && npm --prefix functions run build && npx firebase-tools emulators:exec --project ${GCLOUD_PROJECT:?Set GCLOUD_PROJECT} \"node scripts/run-integration-report.mjs && node scripts/run-e2e.mjs smoke\" && mkdir -p out/test-results/e2e && rm -f out/test-results/e2e/junit.xml && rm -rf out/test-results/e2e/html && if [ -f test-results/e2e-junit.xml ]; then cp test-results/e2e-junit.xml out/test-results/e2e/junit.xml; fi && if [ -d playwright-report ]; then mkdir -p out/test-results/e2e/html && cp -a playwright-report/. out/test-results/e2e/html/; fi"
     },
     "docker": {
       "dockerfile": "tests/integration/Dockerfile",
@@ -55,7 +55,8 @@
       "runAsHostUser": true,
       "writablePaths": [
         "out",
-        "test-results"
+        "test-results",
+        "playwright-report"
       ],
       "bootstrapCommand": "if [ ! -d /work/node_modules/firebase ]; then mkdir -p /work/node_modules && cp -a /opt/deps/node_modules/. /work/node_modules/; fi",
       "cleanup": true,

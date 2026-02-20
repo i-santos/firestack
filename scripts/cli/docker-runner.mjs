@@ -255,7 +255,7 @@ export function createDockerTask({ cwd, logPrefix, dockerConfig, env = process.e
   const imageBuildArgs = [...buildNetworkArgs, ...buildHostArgs];
   const writablePaths = Array.isArray(dockerConfig.writablePaths)
     ? dockerConfig.writablePaths
-    : ['out', 'test-results'];
+    : ['out', 'test-results', 'playwright-report'];
 
   return {
     image,
