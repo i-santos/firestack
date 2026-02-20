@@ -1,5 +1,5 @@
 import { readFileSync, existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { basename, resolve } from 'node:path';
 
 function parseEnv(contents) {
   const map = new Map();
@@ -16,9 +16,9 @@ function parseEnv(contents) {
 }
 
 function loadConfig() {
-  const path = resolve('.firestack/config.json');
+  const path = resolve('firestack/config.json');
   if (!existsSync(path)) {
-    throw new Error('missing .firestack/config.json. Run: node firestack/fs-install.mjs');
+    throw new Error('missing firestack/config.json. Run: npx firestack install');
   }
   return JSON.parse(readFileSync(path, 'utf8'));
 }
@@ -35,7 +35,7 @@ function main() {
   const fullPath = resolve(envFile);
   if (!existsSync(fullPath)) {
     console.error(`[firestack] missing ${envFile}`);
-    console.error(`[firestack] create it from ${envFile}.example`);
+    console.error(`[firestack] create it from firestack/env/examples/${basename(envFile)}.example`);
     process.exit(1);
   }
 

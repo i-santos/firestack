@@ -1,11 +1,11 @@
 {
   "version": 1,
   "envFiles": {
-    "development": ".env.fs.development",
-    "staging": ".env.fs.staging",
-    "production": ".env.fs.production",
-    "testDevelopment": ".env.fs.test.development",
-    "testStaging": ".env.fs.test.staging"
+    "development": "firestack/env/.env.fs.development",
+    "staging": "firestack/env/.env.fs.staging",
+    "production": "firestack/env/.env.fs.production",
+    "testDevelopment": "firestack/env/.env.fs.test.development",
+    "testStaging": "firestack/env/.env.fs.test.staging"
   },
   "requiredVars": {
     "shared": [

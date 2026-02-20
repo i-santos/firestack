@@ -13,8 +13,8 @@ function printHelp() {
   console.log(`FireStack CLI
 
 Usage:
-  firestack install [--target <dir>] [--dry-run] [--force]
-  firestack inject [--target <dir>] [--dry-run] [--force]
+  firestack install [--target <dir>] [--dry-run] [--force] [--stack <full|base>]
+  firestack inject [--target <dir>] [--dry-run] [--force] [--stack <full|base>]
   firestack version
   firestack help`);
 }

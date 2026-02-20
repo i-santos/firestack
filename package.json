@@ -1,6 +1,6 @@
 {
   "name": "@igorsantos-dev/firestack",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Portable DX and testing bootstrap for Node/Firebase projects",
   "type": "module",
   "private": false,
@@ -26,5 +26,9 @@
     "registry:start": "bash scripts/registry-start.sh",
     "registry:stop": "bash scripts/registry-stop.sh",
     "registry:logs": "bash scripts/registry-logs.sh"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "@types/node": "^24.10.1"
   }
 }
