@@ -1,6 +1,8 @@
 node_modules/
 .env
 .env.*
+!templates/env/
+!templates/env/.env*.example
 *.log
 npm-debug.log*
 .DS_Store

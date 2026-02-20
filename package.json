@@ -1,6 +1,6 @@
 {
   "name": "@igorsantos-dev/firestack",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Portable DX and testing bootstrap for Node/Firebase projects",
   "type": "module",
   "private": false,
@@ -10,8 +10,6 @@
   },
   "files": [
     "bin",
-    "fs-install.mjs",
-    "fs-inject.sh",
     "templates",
     "verdaccio",
     "README.md",

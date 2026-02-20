@@ -1,29 +1,26 @@
 #!/usr/bin/env node
-import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
+import { runInstall } from '../scripts/cli/install.mjs';
+import { runInit } from '../scripts/cli/init.mjs';
+import { runEnv } from '../scripts/cli/env.mjs';
+import { runTest } from '../scripts/cli/test.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = dirname(__dirname);
-const installerPath = join(root, 'fs-install.mjs');
 const pkgPath = join(root, 'package.json');
 
 function printHelp() {
   console.log(`FireStack CLI
 
 Usage:
-  firestack install [--target <dir>] [--dry-run] [--force] [--stack <full|base>]
-  firestack inject [--target <dir>] [--dry-run] [--force] [--stack <full|base>]
+  firestack install [--target <dir>] [--dry-run] [--force]
+  firestack init [--target <dir>] [--dry-run] [--force]
+  firestack env [--development|--staging|--production|--all] [--force] [--target <dir>] [--config <path>]
+  firestack test [--ci|--unit|--integration|--e2e|--staging] [--docker] [--full] [--target <dir>] [--config <path>]
   firestack version
   firestack help`);
-}
-
-function runInstaller(args) {
-  const result = spawnSync(process.execPath, [installerPath, ...args], {
-    stdio: 'inherit',
-  });
-  process.exit(result.status ?? 1);
 }
 
 function printVersion() {
@@ -43,8 +40,24 @@ if (command === 'version' || command === '--version' || command === '-v') {
   process.exit(0);
 }
 
-if (command === 'install' || command === 'inject') {
-  runInstaller(rest);
+if (command === 'install') {
+  runInstall(rest);
+  process.exit(0);
+}
+
+if (command === 'init') {
+  runInit(rest);
+  process.exit(0);
+}
+
+if (command === 'env') {
+  runEnv(rest);
+  process.exit(0);
+}
+
+if (command === 'test') {
+  runTest(rest);
+  process.exit(0);
 }
 
 console.error(`[firestack] unknown command: ${command}`);

@@ -1,76 +1,86 @@
 # FireStack (Standalone)
 
-Standalone repository layout for publishing `@igorsantos-dev/firestack`.
+CLI para bootstrap e execução de testes/env em projetos Firebase sem copiar scripts para o repositório do app.
 
-## Install in app projects
+## Modelo Híbrido
+
+Comandos principais:
 
 ```bash
-npm config set @igorsantos-dev:registry http://SEU_HOST:4873
-npm i -D @igorsantos-dev/firestack
 npx firestack install
+npx firestack init
+npx firestack env --development
+npx firestack test --ci
 ```
 
-`npx firestack install` agora instala stack completa por padrao (`--stack full`), incluindo:
+### `install`
 
-- `firestack/tests/**` (unit/integration/e2e + helpers)
-- `firestack/scripts/*` (runners, helpers e utilitarios)
-- `firestack/playwright.config.ts`
-- `firestack/docs/tests/README.md`
-- `firestack/env/examples/.env*.example`
-- `firestack/.gitignore` (escopo local do firestack)
-- `firestack/config.json`
-- scripts minimos no `package.json`: `fs:install`, `fs:env`, `fs:test`
-- `devDependencies` base para E2E (`@playwright/test`)
-- `npm install` automatico no projeto alvo
-- install de browser E2E: `playwright install chromium`
-- estrutura centralizada em `firestack/` na raiz do projeto alvo
+- cria `firestack.config.json` (se não existir)
+- adiciona `@playwright/test` em `devDependencies`
+- roda `npm install`
+- roda `playwright install chromium`
 
-Para modo leve (sem stack completa):
+### `init`
+
+Cria apenas `firestack.config.json` no projeto alvo.
+
+### `env`
+
+Gera arquivos `.env` a partir dos templates embutidos no pacote, usando `firestack.config.json`.
+
+Exemplos:
 
 ```bash
-npx firestack install --stack base
+npx firestack env --development
+npx firestack env --staging --production
+npx firestack env --all --force
 ```
 
-Forcar sobrescrita:
+Mapeamento padrão por ambiente:
+
+- `development` -> `.env.development` e `.env.test.development`
+- `staging` -> `.env.staging` e `.env.test.staging`
+- `production` -> `.env.production`
+
+### `test`
+
+Executa suites usando comandos definidos em `firestack.config.json`.
+
+Exemplos:
 
 ```bash
-npx firestack install --force
+npx firestack test
+npx firestack test --ci --docker
+npx firestack test --unit
+npx firestack test --integration
+npx firestack test --e2e --full
+npx firestack test --staging --full --docker
 ```
 
-## CLI no projeto alvo
+## Docker + Registry local (host)
 
-Gerar envs a partir dos examples:
+Configure no `firestack.config.json`:
 
-```bash
-npm run fs:env -- --development
-npm run fs:env -- --staging --production
-npm run fs:env -- --all
-npm run fs:env -- --test-development --test-staging --force
+```json
+{
+  "test": {
+    "docker": {
+      "addHosts": ["host.docker.internal:host-gateway"],
+      "registry": {
+        "url": "http://host.docker.internal:4873",
+        "scope": "@igorsantos-dev"
+      }
+    }
+  }
+}
 ```
 
-Executar testes com um unico entrypoint:
+Isso evita `ECONNREFUSED 127.0.0.1:4873` dentro do container e deixa o registry parametrizável.
 
-```bash
-npm run fs:test
-npm run fs:test -- --ci --docker
-npm run fs:test -- --unit
-npm run fs:test -- --integration
-npm run fs:test -- --e2e --full
-npm run fs:test -- --staging --full --docker
-```
-
-## Publish flow (private Verdaccio)
+## Publish flow (Verdaccio local)
 
 ```bash
 npm run registry:start
 npm adduser --registry http://127.0.0.1:4873
 npm run publish:local
-```
-
-## Local development
-
-```bash
-npm run pack
-node fs-install.mjs --dry-run --target /path/to/project
-node fs-install.mjs --dry-run --stack full --target /path/to/project
 ```

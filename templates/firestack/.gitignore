@@ -1,4 +1,0 @@
-# Local env files generated from examples
-env/.env*
-!env/examples/
-!env/examples/.env*.example

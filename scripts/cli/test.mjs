@@ -1,0 +1,156 @@
+import { spawnSync } from 'node:child_process';
+import { resolve } from 'node:path';
+import { loadProjectConfig } from './config.mjs';
+
+function printHelp() {
+  console.log('Usage: firestack test [--ci|--unit|--integration|--e2e|--staging] [--docker] [--full] [--target <dir>] [--config <path>]');
+}
+
+function runShell(cwd, script, label, env = process.env) {
+  const result = spawnSync('bash', ['-lc', script], {
+    cwd,
+    stdio: 'inherit',
+    env,
+  });
+  if (result.error) {
+    throw new Error(`${label}: ${result.error.message}`);
+  }
+  if ((result.status ?? 1) !== 0) {
+    process.exit(result.status ?? 1);
+  }
+}
+
+function mapCommandKey(args) {
+  const explicitCount = [args.ci, args.unit, args.integration, args.e2e, args.staging].filter(Boolean).length;
+  const suffix = args.full ? 'Full' : 'Smoke';
+
+  if (explicitCount === 0 || args.ci) return 'ci';
+  if (args.unit) return 'unit';
+  if (args.integration) return 'integration';
+  if (args.e2e) return `e2e${suffix}`;
+  if (args.staging) return `staging${suffix}`;
+  return 'ci';
+}
+
+function normalizeRegistryUrl(rawUrl) {
+  if (!rawUrl) return null;
+  const url = new URL(rawUrl);
+  if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
+    url.hostname = 'host.docker.internal';
+  }
+  return url.toString().replace(/\/$/, '');
+}
+
+function buildDockerCommand(command, dockerConfig) {
+  const installCommand = dockerConfig.installCommand ?? 'npm ci';
+  const registry = dockerConfig.registry ?? {};
+  const registryUrl = normalizeRegistryUrl(registry.url ?? '');
+  const registryScope = registry.scope ?? '';
+
+  const setup = [];
+  if (registryUrl) {
+    if (registryScope) {
+      setup.push(`npm config set ${registryScope}:registry ${registryUrl}`);
+    } else {
+      setup.push(`npm config set registry ${registryUrl}`);
+    }
+  }
+  setup.push(installCommand);
+  setup.push(command);
+
+  return setup.join(' && ');
+}
+
+function buildDockerArgs(cwd, command, dockerConfig) {
+  const image = dockerConfig.image ?? 'node:22-bookworm';
+  const workdir = dockerConfig.workdir ?? '/work';
+  const npmCacheVolume = dockerConfig.npmCacheVolume ?? 'firestack-npm-cache';
+  const addHosts = Array.isArray(dockerConfig.addHosts) ? dockerConfig.addHosts : ['host.docker.internal:host-gateway'];
+  const passThrough = Array.isArray(dockerConfig.passThroughEnv) ? dockerConfig.passThroughEnv : [];
+
+  const envArgs = passThrough
+    .filter((name) => typeof process.env[name] === 'string' && process.env[name] !== '')
+    .flatMap((name) => ['-e', `${name}=${process.env[name]}`]);
+
+  const hostArgs = addHosts.flatMap((entry) => ['--add-host', entry]);
+
+  return [
+    'run',
+    '--rm',
+    '-t',
+    '--init',
+    ...hostArgs,
+    '-v', `${cwd}:${workdir}`,
+    '-v', `${npmCacheVolume}:/root/.npm`,
+    '-w', workdir,
+    ...envArgs,
+    image,
+    'bash',
+    '-lc',
+    buildDockerCommand(command, dockerConfig),
+  ];
+}
+
+export function runTest(argv) {
+  const args = {
+    target: process.cwd(),
+    config: null,
+    docker: false,
+    ci: false,
+    unit: false,
+    integration: false,
+    e2e: false,
+    staging: false,
+    full: false,
+  };
+
+  for (let i = 0; i < argv.length; i += 1) {
+    const token = argv[i];
+    if (token === '--target') {
+      args.target = resolve(argv[i + 1] ?? '.');
+      i += 1;
+      continue;
+    }
+    if (token === '--config') {
+      args.config = resolve(argv[i + 1] ?? 'firestack.config.json');
+      i += 1;
+      continue;
+    }
+    if (token === '--docker') { args.docker = true; continue; }
+    if (token === '--ci') { args.ci = true; continue; }
+    if (token === '--unit') { args.unit = true; continue; }
+    if (token === '--integration') { args.integration = true; continue; }
+    if (token === '--e2e') { args.e2e = true; continue; }
+    if (token === '--staging') { args.staging = true; continue; }
+    if (token === '--full') { args.full = true; continue; }
+    if (token === '-h' || token === '--help') {
+      printHelp();
+      process.exit(0);
+    }
+    throw new Error(`unknown argument: ${token}`);
+  }
+
+  const { data: config } = loadProjectConfig(args.target, args.config);
+  const commands = config.test?.commands ?? {};
+  const key = mapCommandKey(args);
+  const command = commands[key];
+  if (!command) {
+    throw new Error(`missing test command "${key}" in firestack.config.json`);
+  }
+
+  if (!args.docker) {
+    runShell(args.target, command, key);
+    return;
+  }
+
+  const dockerConfig = config.test?.docker ?? {};
+  const dockerArgs = buildDockerArgs(args.target, command, dockerConfig);
+
+  const result = spawnSync('docker', dockerArgs, { stdio: 'inherit' });
+  if (result.error) {
+    throw new Error(`docker: ${result.error.message}`);
+  }
+  if ((result.status ?? 1) !== 0) {
+    process.exit(result.status ?? 1);
+  }
+}

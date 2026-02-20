@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "env": {
+    "profiles": {
+      "development": {
+        "files": [
+          {
+            "target": ".env.development",
+            "template": "env/.env.development.example"
+          },
+          {
+            "target": ".env.test.development",
+            "template": "env/.env.test.development.example"
+          }
+        ]
+      },
+      "staging": {
+        "files": [
+          {
+            "target": ".env.staging",
+            "template": "env/.env.staging.example"
+          },
+          {
+            "target": ".env.test.staging",
+            "template": "env/.env.test.staging.example"
+          }
+        ]
+      },
+      "production": {
+        "files": [
+          {
+            "target": ".env.production",
+            "template": "env/.env.production.example"
+          }
+        ]
+      }
+    }
+  },
+  "test": {
+    "commands": {
+      "unit": "node --test --experimental-strip-types tests/unit/**/*.test.ts",
+      "integration": "npm --prefix functions run build && firebase emulators:exec --project ${GCLOUD_PROJECT:-demo-present-goal} \"node scripts/run-integration-report.mjs\"",
+      "e2eSmoke": "node scripts/run-e2e.mjs smoke",
+      "e2eFull": "node scripts/run-e2e.mjs full",
+      "stagingSmoke": "node --env-file-if-exists=.env.test.staging scripts/run-e2e-staging.mjs smoke",
+      "stagingFull": "node --env-file-if-exists=.env.test.staging scripts/run-e2e-staging.mjs full",
+      "ci": "node --test --experimental-strip-types tests/unit/**/*.test.ts && npm --prefix functions run build && firebase emulators:exec --project ${GCLOUD_PROJECT:-demo-present-goal} \"node scripts/run-integration-report.mjs && node scripts/run-e2e.mjs smoke\""
+    },
+    "docker": {
+      "image": "node:22-bookworm",
+      "workdir": "/work",
+      "installCommand": "npm ci",
+      "npmCacheVolume": "firestack-npm-cache",
+      "addHosts": [
+        "host.docker.internal:host-gateway"
+      ],
+      "passThroughEnv": [
+        "GCLOUD_PROJECT",
+        "E2E_BASE_URL",
+        "E2E_CLEANUP",
+        "E2E_RUN_ID",
+        "E2E_EMAIL",
+        "E2E_PASSWORD",
+        "E2E_APP_CHECK_DEBUG_TOKEN",
+        "FIREBASE_AUTH_EMULATOR_HOST",
+        "FIRESTORE_EMULATOR_HOST",
+        "VITE_USE_FIREBASE_EMULATOR",
+        "VITE_FIREBASE_EMULATOR_HOST",
+        "STRIPE_WEBHOOK_SECRET",
+        "STRIPE_SECRET_KEY"
+      ],
+      "registry": {
+        "url": "http://host.docker.internal:4873",
+        "scope": "@igorsantos-dev"
+      }
+    }
+  }
+}
