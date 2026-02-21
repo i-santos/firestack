@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, isAbsolute, normalize, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadProjectConfig } from './config.mjs';
@@ -723,6 +723,38 @@ function printTestSummary(cwd, key) {
   }
 }
 
+function expectedJUnitPaths(cwd, key) {
+  const mapping = {
+    unit: [resolve(cwd, 'out/tests/unit/junit.xml')],
+    integration: [resolve(cwd, 'out/tests/integration/junit.xml')],
+    e2eSmoke: [resolve(cwd, 'out/tests/e2e/junit.xml')],
+    e2eFull: [resolve(cwd, 'out/tests/e2e/junit.xml')],
+    stagingSmoke: [resolve(cwd, 'out/tests/e2e/staging/junit.xml')],
+    stagingFull: [resolve(cwd, 'out/tests/e2e/staging/junit.xml')],
+    ci: [
+      resolve(cwd, 'out/tests/unit/junit.xml'),
+      resolve(cwd, 'out/tests/integration/junit.xml'),
+      resolve(cwd, 'out/tests/e2e/junit.xml'),
+    ],
+    ciFailFast: [
+      resolve(cwd, 'out/tests/unit/junit.xml'),
+      resolve(cwd, 'out/tests/integration/junit.xml'),
+      resolve(cwd, 'out/tests/e2e/junit.xml'),
+    ],
+  };
+  return mapping[key] ?? [];
+}
+
+function clearExpectedJUnitReports(cwd, key) {
+  for (const reportPath of expectedJUnitPaths(cwd, key)) {
+    try {
+      rmSync(reportPath, { force: true });
+    } catch {
+      // ignore cleanup errors; test run will recreate reports when successful.
+    }
+  }
+}
+
 export function runTest(argv) {
   const args = {
     target: process.cwd(),
@@ -829,11 +861,14 @@ export function runTest(argv) {
     throw new Error(`invalid --infra-logs value "${args.infraLogs}" (expected compact|verbose|quiet)`);
   }
   const configuredCommand = commands[key] ?? (key === 'ciFailFast' ? commands.ci : null);
+  const commandFirebaseConfigPath = args.docker
+    ? firebaseConfigRuntimePath
+    : resolvedFirebaseConfigPath;
   const command = applyFirebaseConfigToCommand(
     rewriteFirebaseCliInvocations(
       rewriteInternalFirestackInvocations(configuredCommand, internalRunnerBin)
     ),
-    resolvedFirebaseConfigPath
+    commandFirebaseConfigPath
   );
   if (!command) {
     throw new Error(`missing test command "${key}" in firestack.config.json`);
@@ -852,6 +887,7 @@ export function runTest(argv) {
   }
 
   if (!args.docker) {
+    clearExpectedJUnitReports(args.target, key);
     const routedCommand = args.logRouting
       ? buildLogRoutedCommand(command, {
         routerScriptPath: logRouterScriptPath,
@@ -911,8 +947,8 @@ export function runTest(argv) {
       `${logPrefix} missing GCLOUD_PROJECT for emulator-backed E2E. Set it explicitly or configure .firebaserc.`
     );
   }
-  const firebaseConfigArg = resolvedFirebaseConfigPath
-    ? ` --config ${escapeShell(resolvedFirebaseConfigPath)}`
+  const firebaseConfigArg = firebaseConfigRuntimePath
+    ? ` --config ${escapeShell(firebaseConfigRuntimePath)}`
     : '';
   const dockerSuiteCommand = (key === 'e2eSmoke' || key === 'e2eFull') && !externalBaseUrl
     ? `firestack internal run-functions-build && firebase${firebaseConfigArg} emulators:exec --project ${escapeShell(projectId)} ${escapeShell(command)}`
@@ -937,6 +973,7 @@ export function runTest(argv) {
   console.log(`${logPrefix} node_modules volume: ${task.nodeModulesVolume}`);
   console.log(`${logPrefix} emulator cache volume: ${task.emulatorCacheVolume}`);
 
+  clearExpectedJUnitReports(args.target, key);
   const status = task.run({
     command: runnableCommand,
     envNames: dockerEnvNames,
