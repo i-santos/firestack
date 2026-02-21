@@ -9,6 +9,7 @@ Comandos principais:
 ```bash
 npx firestack install
 npx firestack init
+npx firestack docker init
 npx firestack env --development
 npx firestack test --ci
 npx firestack test --ci --docker --docker-rebuild
@@ -23,11 +24,15 @@ npx firestack test --ci --docker --docker-rebuild
 
 ### `init`
 
-Cria `firestack.config.json` e `playwright.config.mjs` no projeto alvo.
+Cria `firestack.config.json`, `playwright.config.mjs` e `tests/Dockerfile` no projeto alvo.
 O template organiza tudo de teste em `out/tests/...`:
 - `out/tests/unit`
 - `out/tests/integration`
 - `out/tests/e2e` (inclui `html/`, `junit.xml` e `artifacts/`)
+
+### `docker init`
+
+Cria (ou atualiza com `--force`) o `tests/Dockerfile` padrão do FireStack no projeto alvo.
 
 ### `env`
 
@@ -100,9 +105,10 @@ Configure no `firestack.config.json`:
       "dockerfile": "tests/Dockerfile",
       "imageBaseName": "firestack-tests",
       "nodeModulesVolumePrefix": "firestack-node_modules-",
+      "functionsNodeModulesVolumePrefix": "firestack-functions-node_modules-",
       "emulatorCacheVolumePrefix": "firestack-firebase-cache-",
       "buildNetwork": "host",
-      "bootstrapCommand": "if [ ! -d /work/node_modules/firebase ]; then mkdir -p /work/node_modules && cp -a /opt/deps/node_modules/. /work/node_modules/; fi",
+      "bootstrapCommand": "if [ ! -d /work/node_modules/.bin ]; then mkdir -p /work/node_modules && cp -a /opt/deps/node_modules/. /work/node_modules/; fi && if [ -d /opt/deps/functions/node_modules ] && [ -f /work/functions/package.json ] && [ ! -d /work/functions/node_modules/.bin ]; then mkdir -p /work/functions/node_modules && cp -a /opt/deps/functions/node_modules/. /work/functions/node_modules/; fi",
       "runAsHostUser": true,
       "preloadFirestoreEmulator": true,
       "writablePaths": ["out"],
@@ -118,11 +124,12 @@ Configure no `firestack.config.json`:
 ```
 
 No modo `--docker`, o FireStack:
-- builda imagem com tag baseada em hash de `Dockerfile` + lockfile + deps do `package.json`;
+- builda imagem com tag baseada em hash de `Dockerfile` + lockfiles + deps de `package.json` (raiz e `functions`, quando existir);
 - reutiliza imagem/volume quando o hash não muda;
 - faz rebuild automático quando deps mudam;
 - monta `node_modules` em volume dedicado por hash para acelerar as execuções.
-- mantém cache persistente dos emulators Firebase em volume Docker dedicado para evitar download em toda suíte.
+- monta `functions/node_modules` em volume dedicado por hash quando `functions/package.json` existe.
+- mantém cache persistente dos emulators Firebase em volume Docker dedicado e prioriza seed do cache a partir da imagem.
 
 Para forçar rebuild manual da imagem:
 

@@ -1,10 +1,11 @@
-import { cpSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const TEMPLATE_CONFIG = join(ROOT, 'templates', 'firestack.config.json');
 const TEMPLATE_PLAYWRIGHT_CONFIG = join(ROOT, 'templates', 'playwright.config.mjs');
+const TEMPLATE_DOCKERFILE = join(ROOT, 'templates', 'tests.Dockerfile');
 
 function printHelp() {
   console.log('Usage: firestack init [--target <dir>] [--force] [--dry-run]');
@@ -70,6 +71,7 @@ export function runInit(argv) {
   const files = [
     { template: TEMPLATE_CONFIG, relativePath: 'firestack.config.json', label: 'firestack.config.json' },
     { template: TEMPLATE_PLAYWRIGHT_CONFIG, relativePath: 'playwright.config.mjs', label: 'playwright.config.mjs' },
+    { template: TEMPLATE_DOCKERFILE, relativePath: 'tests/Dockerfile', label: 'tests/Dockerfile' },
   ];
   let skippedExisting = false;
 
@@ -81,6 +83,7 @@ export function runInit(argv) {
       continue;
     }
     if (!args.dryRun) {
+      mkdirSync(dirname(destination), { recursive: true });
       cpSync(file.template, destination, { recursive: false });
     }
     console.log(`[firestack] initialized ${destination}`);

@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { runInstall } from '../scripts/cli/install.mjs';
 import { runInit } from '../scripts/cli/init.mjs';
+import { runDockerInit } from '../scripts/cli/docker-init.mjs';
 import { runEnv } from '../scripts/cli/env.mjs';
 import { runTest } from '../scripts/cli/test.mjs';
 
@@ -18,6 +19,7 @@ function printHelp() {
 Usage:
   firestack install [--target <dir>] [--dry-run] [--force]
   firestack init [--target <dir>] [--dry-run] [--force]
+  firestack docker init [--target <dir>] [--dry-run] [--force]
   firestack env [--development|--staging|--production|--all] [--force] [--target <dir>] [--config <path>]
   firestack test [--ci|--unit|--integration|--e2e|--staging] [--docker] [--docker-rebuild] [--fail-fast] [--full] [--target <dir>] [--config <path>]
   firestack version
@@ -80,6 +82,16 @@ if (command === 'init') {
 if (command === 'env') {
   runEnv(rest);
   process.exit(0);
+}
+
+if (command === 'docker') {
+  const [dockerCommand, ...dockerArgs] = rest;
+  if (dockerCommand === 'init') {
+    runDockerInit(dockerArgs);
+    process.exit(0);
+  }
+  console.error(`[firestack] unknown docker command: ${dockerCommand ?? '(empty)'}`);
+  process.exit(1);
 }
 
 if (command === 'test') {
