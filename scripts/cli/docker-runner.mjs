@@ -245,7 +245,7 @@ function ensureFirestoreEmulatorCached(logPrefix, image, cacheVolume, uid, gid) 
     '  FIREBASE_EMULATORS_PATH=/firestack-cache/firebase/emulators node_modules/.bin/firebase setup:emulators:firestore',
     '  exit 0',
     'fi',
-    'FIREBASE_EMULATORS_PATH=/firestack-cache/firebase/emulators npx firebase-tools setup:emulators:firestore',
+    'FIREBASE_EMULATORS_PATH=/firestack-cache/firebase/emulators firebase setup:emulators:firestore',
   ].join('\n');
 
   const result = runDocker([

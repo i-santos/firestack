@@ -230,6 +230,11 @@ function rewriteInternalFirestackInvocations(command, internalBinPath) {
   );
 }
 
+function rewriteFirebaseCliInvocations(command) {
+  if (typeof command !== 'string' || command.length === 0) return command;
+  return command.replace(/\bnpx\s+firebase-tools\b/g, 'firebase');
+}
+
 function buildLogRoutedCommand(command, { routerScriptPath, mode, infraLogFile, suiteLogFile, appendLogs }) {
   const ttyWidth = Number.isFinite(Number(process.stdout.columns)) && Number(process.stdout.columns) > 0
     ? String(process.stdout.columns)
@@ -716,7 +721,9 @@ export function runTest(argv) {
     throw new Error(`invalid --infra-logs value "${args.infraLogs}" (expected compact|verbose|quiet)`);
   }
   const configuredCommand = commands[key] ?? (key === 'ciFailFast' ? commands.ci : null);
-  const command = rewriteInternalFirestackInvocations(configuredCommand, internalRunnerBin);
+  const command = rewriteFirebaseCliInvocations(
+    rewriteInternalFirestackInvocations(configuredCommand, internalRunnerBin)
+  );
   if (!command) {
     throw new Error(`missing test command "${key}" in firestack.config.json`);
   }
@@ -776,7 +783,7 @@ export function runTest(argv) {
   const bootstrapCommand = dockerConfig.bootstrapCommand ?? defaultBootstrapCommand();
   const projectId = testEnv.GCLOUD_PROJECT ?? 'demo-present-goal';
   const dockerSuiteCommand = (key === 'e2eSmoke' || key === 'e2eFull') && !externalBaseUrl
-    ? `npm --prefix functions run build && npx firebase-tools emulators:exec --project ${escapeShell(projectId)} ${escapeShell(command)}`
+    ? `npm --prefix functions run build && firebase emulators:exec --project ${escapeShell(projectId)} ${escapeShell(command)}`
     : command;
   const setup = [];
   if (bootstrapCommand) setup.push(bootstrapCommand);
