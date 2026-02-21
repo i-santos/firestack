@@ -807,6 +807,15 @@ export function runTest(argv) {
     explicitPath: args.firebaseConfig,
     profileAlias,
   });
+  const firebaseConfigRuntimePath = resolvedFirebaseConfigPath
+    ? (() => {
+      const rel = relative(args.target, resolvedFirebaseConfigPath).replaceAll('\\', '/');
+      return rel && !rel.startsWith('..') && !isAbsolute(rel) ? rel : resolvedFirebaseConfigPath;
+    })()
+    : null;
+  if (firebaseConfigRuntimePath) {
+    testEnv.FIRESTACK_FIREBASE_CONFIG_PATH = firebaseConfigRuntimePath;
+  }
   const commands = config.test?.commands ?? {};
   const key = mapCommandKey(args);
   const firestackCliRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -861,6 +870,7 @@ export function runTest(argv) {
   const logPrefix = buildDockerLogPrefix(key);
   const externalBaseUrl = testEnv.E2E_BASE_URL?.trim();
   const passThrough = Array.isArray(dockerConfig.passThroughEnv) ? dockerConfig.passThroughEnv : [];
+  const dockerEnvNames = Array.from(new Set([...passThrough, 'FIRESTACK_FIREBASE_CONFIG_PATH']));
 
   if (key === 'ci' || key === 'ciFailFast') {
     assertNoExternalBaseUrlForCi(testEnv, logPrefix);
@@ -906,7 +916,7 @@ export function runTest(argv) {
     ? ` --config ${escapeShell(resolvedFirebaseConfigPath)}`
     : '';
   const dockerSuiteCommand = (key === 'e2eSmoke' || key === 'e2eFull') && !externalBaseUrl
-    ? `npm --prefix functions run build && firebase${firebaseConfigArg} emulators:exec --project ${escapeShell(projectId)} ${escapeShell(command)}`
+    ? `firestack internal run-functions-build && firebase${firebaseConfigArg} emulators:exec --project ${escapeShell(projectId)} ${escapeShell(command)}`
     : command;
   const setup = [];
   if (bootstrapCommand) setup.push(bootstrapCommand);
@@ -930,7 +940,7 @@ export function runTest(argv) {
 
   const status = task.run({
     command: runnableCommand,
-    envNames: passThrough,
+    envNames: dockerEnvNames,
     extraArgs: ['-v', `${firestackCliRoot}:/firestack-cli:ro`],
   });
   printTestSummary(args.target, key);

@@ -30,6 +30,7 @@ function runInternal(rest) {
   const [internalCommand, ...internalArgs] = rest;
   const internalScriptMap = {
     'run-integration-report': join(root, 'scripts', 'cli', 'internal-run-integration-report.mjs'),
+    'run-functions-build': join(root, 'scripts', 'cli', 'internal-run-functions-build.mjs'),
     'run-e2e': join(root, 'scripts', 'cli', 'internal-run-e2e.mjs'),
     'run-e2e-staging': join(root, 'scripts', 'cli', 'internal-run-e2e-staging.mjs'),
   };
