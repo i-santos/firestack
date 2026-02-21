@@ -894,7 +894,6 @@ export function runTest(argv) {
   const task = createDockerTask({
     cwd: args.target,
     logPrefix,
-    suiteKey: key,
     dockerConfig: {
       ...dockerConfig,
       writablePaths,

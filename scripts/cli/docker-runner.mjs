@@ -135,20 +135,13 @@ function extractDependencyInputs(repoPath, functionsPaths = []) {
   return stableStringify(relevant);
 }
 
-function computeDepsHash(
-  repoPath,
-  dockerfilePath,
-  lockfilePath = 'package-lock.json',
-  functionsPaths = [],
-  extraInputs = {}
-) {
+function computeDepsHash(repoPath, dockerfilePath, lockfilePath = 'package-lock.json', functionsPaths = []) {
   const dockerfile = readFileStrict(resolve(repoPath, dockerfilePath));
   const lockfile = readFileStrict(resolve(repoPath, lockfilePath));
   const hash = createHash('sha256');
   hash.update(dockerfile ?? Buffer.from(''));
   hash.update(extractDependencyInputs(repoPath, functionsPaths));
   hash.update(lockfile ?? Buffer.from(''));
-  hash.update(stableStringify(extraInputs));
   for (const functionsPath of functionsPaths) {
     const functionsLockfile = readFileStrict(resolve(repoPath, functionsPath, 'package-lock.json'));
     const functionsNpmShrinkwrap = readFileStrict(resolve(repoPath, functionsPath, 'npm-shrinkwrap.json'));
@@ -184,32 +177,11 @@ function cleanupOldDockerArtifacts(logPrefix, imageBaseName, volumePrefixes, kee
 }
 
 function ensureImage(logPrefix, image, dockerfilePath, repoPath, depsHash, buildArgs = [], forceRebuild = false) {
-  const inspectResult = runDocker(['image', 'inspect', image], { encoding: 'utf8' });
-  const imageExists = (inspectResult.status ?? 1) === 0;
-  let labels = {};
-  if (imageExists) {
-    try {
-      const parsed = JSON.parse(inspectResult.stdout ?? '[]');
-      labels = parsed?.[0]?.Config?.Labels ?? {};
-    } catch {
-      labels = {};
-    }
-  }
-
-  const expectedRank = Number(buildArgs.find((arg) => arg.startsWith('FIRESTACK_CAPABILITY_RANK='))?.split('=')[1] ?? '3');
-  const currentRank = Number(labels['io.firestack.capability-rank'] ?? '-1');
-  const currentDepsHash = String(labels['io.firestack.deps-hash'] ?? '');
-  const needsUpgrade = imageExists && (currentRank < expectedRank || currentDepsHash !== depsHash);
-
-  if (imageExists && !forceRebuild && !needsUpgrade) return;
+  const imageExists = runDocker(['image', 'inspect', image], { stdio: 'ignore' }).status === 0;
+  if (imageExists && !forceRebuild) return;
   if (imageExists && forceRebuild) {
     console.log(`${logPrefix} force rebuild enabled. removing cached image ${image}`);
     runDockerStrict(logPrefix, 'failed to remove docker image for rebuild', ['image', 'rm', image], { stdio: 'inherit' });
-  } else if (needsUpgrade) {
-    console.log(
-      `${logPrefix} rebuilding image in place (current tier=${Number.isFinite(currentRank) ? currentRank : 'unknown'}, ` +
-      `target tier=${expectedRank}, deps hash changed=${currentDepsHash !== depsHash})`
-    );
   }
   console.log(`${logPrefix} building image ${image} (deps hash: ${depsHash})`);
   if (buildArgs.length > 0) {
@@ -374,47 +346,13 @@ export function defaultBootstrapCommand() {
   ].join(' && ');
 }
 
-function resolveDockerCapability(suiteKey) {
-  if (suiteKey === 'unit') return 'unit';
-  if (suiteKey === 'integration') return 'integration';
-  if (
-    suiteKey === 'e2eSmoke' ||
-    suiteKey === 'e2eFull' ||
-    suiteKey === 'stagingSmoke' ||
-    suiteKey === 'stagingFull' ||
-    suiteKey === 'ci' ||
-    suiteKey === 'ciFailFast'
-  ) {
-    return 'e2e';
-  }
-  return 'e2e';
-}
-
-function capabilityRank(capability) {
-  if (capability === 'unit') return 1;
-  if (capability === 'integration') return 2;
-  return 3;
-}
-
-export function createDockerTask({
-  cwd,
-  logPrefix,
-  suiteKey = 'ci',
-  dockerConfig,
-  env = process.env,
-  firebaseConfigPath = null,
-  forceRebuild = false,
-}) {
+export function createDockerTask({ cwd, logPrefix, dockerConfig, env = process.env, firebaseConfigPath = null, forceRebuild = false }) {
   const dockerfilePath = dockerConfig.dockerfile ?? 'tests/Dockerfile';
   const dockerfileAbsolutePath = resolve(cwd, dockerfilePath);
-  const capability = resolveDockerCapability(suiteKey);
-  const nodeBaseImage = dockerConfig.nodeBaseImage ?? 'node:20-bookworm-slim';
-  const usesFirebaseTooling = capability !== 'unit';
   const resolvedFirebaseConfigPath = firebaseConfigPath
     ? (resolve(cwd, firebaseConfigPath))
     : resolve(cwd, 'firebase.json');
   const functionsPaths = discoverFunctionsPaths(cwd, resolvedFirebaseConfigPath);
-  const hashFunctionsPaths = usesFirebaseTooling ? functionsPaths : [];
   if (!existsSync(dockerfileAbsolutePath)) {
     fail(
       logPrefix,
@@ -427,19 +365,8 @@ export function createDockerTask({
   const nodeModulesVolumePrefix = `${dockerConfig.nodeModulesVolumePrefix ?? 'firestack-node_modules-'}${namespace}-`;
   const functionsNodeModulesVolumePrefix = `${dockerConfig.functionsNodeModulesVolumePrefix ?? 'firestack-functions-node_modules-'}${namespace}-`;
   const emulatorCacheVolume = `${dockerConfig.emulatorCacheVolumePrefix ?? 'firestack-firebase-cache-'}${namespace}`;
-  const depsHash = computeDepsHash(
-    cwd,
-    dockerfilePath,
-    dockerConfig.lockfilePath ?? 'package-lock.json',
-    hashFunctionsPaths,
-    {
-      nodeBaseImage,
-      firebaseConfigPath: usesFirebaseTooling
-        ? relative(cwd, resolvedFirebaseConfigPath).replaceAll('\\', '/')
-        : null,
-    }
-  );
-  const image = `${imageBaseName}:rolling`;
+  const depsHash = computeDepsHash(cwd, dockerfilePath, dockerConfig.lockfilePath ?? 'package-lock.json', functionsPaths);
+  const image = `${imageBaseName}:${depsHash}`;
   const nodeModulesVolume = `${nodeModulesVolumePrefix}${depsHash}`;
   const functionModuleMounts = functionsPaths.map((path) => {
     const pathHash = createHash('sha256').update(path).digest('hex').slice(0, 8);
@@ -466,42 +393,26 @@ export function createDockerTask({
   const buildNetworkArgs = typeof buildNetwork === 'string' && buildNetwork.trim() !== ''
     ? ['--network', buildNetwork.trim()]
     : [];
-  let firebaseConfigRelPath = 'firebase.json';
-  if (usesFirebaseTooling) {
-    const firebaseConfigRelPathRaw = relative(cwd, resolvedFirebaseConfigPath).replaceAll('\\', '/');
-    if (firebaseConfigRelPathRaw.startsWith('..') || isAbsolute(firebaseConfigRelPathRaw)) {
-      fail(logPrefix, `firebase config path must be inside project root: ${resolvedFirebaseConfigPath}`);
-    }
-    firebaseConfigRelPath = firebaseConfigRelPathRaw || 'firebase.json';
+  const firebaseConfigRelPathRaw = relative(cwd, resolvedFirebaseConfigPath).replaceAll('\\', '/');
+  if (firebaseConfigRelPathRaw.startsWith('..') || isAbsolute(firebaseConfigRelPathRaw)) {
+    fail(logPrefix, `firebase config path must be inside project root: ${resolvedFirebaseConfigPath}`);
   }
+  const firebaseConfigRelPath = firebaseConfigRelPathRaw || 'firebase.json';
   const imageBuildArgs = [
     ...buildNetworkArgs,
     ...buildHostArgs,
     '--build-arg',
-    `FIRESTACK_NODE_BASE_IMAGE=${nodeBaseImage}`,
-    '--build-arg',
-    `FIRESTACK_CAPABILITY_RANK=${capabilityRank(capability)}`,
-    '--build-arg',
     `FIREBASE_CONFIG_PATH=${firebaseConfigRelPath}`,
-    '--target',
-    capability,
-    '--label',
-    `io.firestack.deps-hash=${depsHash}`,
-    '--label',
-    `io.firestack.capability=${capability}`,
-    '--label',
-    `io.firestack.capability-rank=${capabilityRank(capability)}`,
   ];
   const writablePaths = Array.isArray(dockerConfig.writablePaths)
     ? dockerConfig.writablePaths
     : ['out'];
-  const preloadFirestoreEmulator = usesFirebaseTooling && dockerConfig.preloadFirestoreEmulator !== false;
+  const preloadFirestoreEmulator = dockerConfig.preloadFirestoreEmulator !== false;
 
   return {
     image,
     nodeModulesVolume,
     emulatorCacheVolume,
-    capability,
     prepare() {
       ensureImage(logPrefix, image, dockerfilePath, cwd, depsHash, imageBuildArgs, forceRebuild);
       if (useHostUser) {
