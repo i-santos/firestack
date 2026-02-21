@@ -404,8 +404,8 @@ function ensureFirestoreEmulatorCached(logPrefix, image, cacheVolume, uid, gid) 
 
 export function defaultBootstrapCommand() {
   return [
-    'if [ ! -d /work/node_modules/.bin ]; then mkdir -p /work/node_modules && cp -a /opt/deps/node_modules/. /work/node_modules/; fi',
-    'if [ -n "${FIRESTACK_FUNCTIONS_PATHS:-}" ]; then IFS=\',\' read -r -a firestack_functions <<< "$FIRESTACK_FUNCTIONS_PATHS"; for rel in "${firestack_functions[@]}"; do if [ -n "$rel" ] && [ -d "/opt/deps/$rel/node_modules" ] && [ -f "/work/$rel/package.json" ] && [ ! -d "/work/$rel/node_modules/.bin" ]; then mkdir -p "/work/$rel/node_modules" && cp -a "/opt/deps/$rel/node_modules/." "/work/$rel/node_modules/"; fi; done; fi',
+    'if [ ! -d /work/node_modules/.bin ]; then if [ -d /opt/deps/node_modules ]; then mkdir -p /work/node_modules && cp -a /opt/deps/node_modules/. /work/node_modules/; elif [ -f /work/package.json ]; then (cd /work && (npm ci || npm install)); fi; fi',
+    'if [ -n "${FIRESTACK_FUNCTIONS_PATHS:-}" ]; then IFS=\',\' read -r -a firestack_functions <<< "$FIRESTACK_FUNCTIONS_PATHS"; for rel in "${firestack_functions[@]}"; do if [ -n "$rel" ] && [ -f "/work/$rel/package.json" ] && [ ! -d "/work/$rel/node_modules/.bin" ]; then if [ -d "/opt/deps/$rel/node_modules" ]; then mkdir -p "/work/$rel/node_modules" && cp -a "/opt/deps/$rel/node_modules/." "/work/$rel/node_modules/"; else (cd "/work/$rel" && (npm ci || npm install)); fi; fi; done; fi',
   ].join(' && ');
 }
 
