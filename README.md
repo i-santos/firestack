@@ -56,12 +56,12 @@ Mapeamento padrão por ambiente:
 
 Executa suites usando comandos definidos em `firestack.config.json`.
 
-Resolução do projeto Firebase para testes de integração/CI (quando o comando usa `firebase emulators:exec --project ...`):
+Resolução de perfil/projeto/config Firebase para testes:
 
-1. Usa `GCLOUD_PROJECT` se estiver definido.
-2. Senão, tenta ler `.firebaserc` no diretório alvo.
-3. Para escolher alias no `.firebaserc`, a ordem é: `FIREBASE_ALIAS` (se definido), depois `default`, depois o primeiro alias válido em `projects`.
-4. Se não conseguir resolver projeto, falha com erro explícito.
+1. Resolve `profile` por `--profile <alias>`, senão usa `staging` quando `--staging`, senão `FIREBASE_ALIAS`, senão `default`.
+2. Carrega `.env` com fallback por perfil: `.env`, `.env.test`, `.env.<profile>`, `.env.test.<profile>` (para `default`, também considera `development`).
+3. Usa `GCLOUD_PROJECT` se estiver definido; senão resolve de `.firebaserc` pelo alias do profile.
+4. Resolve config Firebase por `--firebase-config <path>`; se não vier, tenta `firebase.<profile>.json` e depois `firebase.json`.
 
 Quando o fallback do `.firebaserc` é usado, o CLI também define `FIREBASE_PROJECT_ALIAS` no ambiente (incluindo execução com `--docker`).
 
@@ -77,6 +77,8 @@ npx firestack test --ci --infra-logs verbose
 npx firestack test --ci --no-log-routing
 npx firestack test --unit
 npx firestack test --integration
+npx firestack test --integration --profile default
+npx firestack test --staging --profile staging --firebase-config firebase.staging.json
 npx firestack test --e2e --full
 npx firestack test --staging --full --docker
 ```
@@ -123,7 +125,7 @@ Configure no `firestack.config.json`:
 ```
 
 No modo `--docker`, o FireStack:
-- detecta módulos Cloud Functions automaticamente via `firebase.json` (`functions.source`, incluindo múltiplos codebases);
+- detecta módulos Cloud Functions automaticamente via config Firebase resolvida (`--firebase-config` ou fallback de profile; `functions.source`, incluindo múltiplos codebases);
 - builda imagem com tag baseada em hash de `Dockerfile` + lockfiles + deps de `package.json` (raiz + módulos Functions detectados);
 - reutiliza imagem/volume quando o hash não muda;
 - faz rebuild automático quando deps mudam;

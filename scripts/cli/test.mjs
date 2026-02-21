@@ -33,6 +33,7 @@ function paint(text, ...styles) {
 function printHelp() {
   console.log(
     'Usage: firestack test [--ci|--unit|--integration|--e2e|--staging] [--docker] [--docker-rebuild] [--fail-fast] [--full] ' +
+    '[--profile <alias>] [--firebase-config <path>] ' +
     '[--infra-logs <compact|verbose|quiet>] [--infra-log-file <path>] [--suite-log-file <path>] [--log-append] [--no-log-routing] ' +
     '[--target <dir>] [--config <path>]'
   );
@@ -50,7 +51,7 @@ function runShell(cwd, script, label, env = process.env) {
   return result.status ?? 1;
 }
 
-function resolveFirebaseProjectFromRc(cwd) {
+function resolveFirebaseProjectFromRc(cwd, { preferredAlias = null, strictAlias = false } = {}) {
   const rcPath = resolve(cwd, '.firebaserc');
   if (!existsSync(rcPath)) return null;
 
@@ -64,14 +65,18 @@ function resolveFirebaseProjectFromRc(cwd) {
   const projects = parsed?.projects;
   if (!projects || typeof projects !== 'object') return null;
 
-  const preferredAlias = typeof process.env.FIREBASE_ALIAS === 'string' && process.env.FIREBASE_ALIAS.trim()
+  const envAlias = typeof process.env.FIREBASE_ALIAS === 'string' && process.env.FIREBASE_ALIAS.trim()
     ? process.env.FIREBASE_ALIAS.trim()
-    : 'default';
+    : null;
+  const selectedAlias = preferredAlias || envAlias || 'default';
 
-  let alias = preferredAlias;
+  let alias = selectedAlias;
   let projectId = projects[alias];
 
   if (typeof projectId !== 'string' || !projectId.trim()) {
+    if (strictAlias) {
+      throw new Error(`missing Firebase project alias "${alias}" in ${rcPath}`);
+    }
     const firstAlias = Object.keys(projects).find((key) => typeof projects[key] === 'string' && projects[key].trim());
     if (!firstAlias) return null;
     alias = firstAlias;
@@ -81,19 +86,90 @@ function resolveFirebaseProjectFromRc(cwd) {
   return { alias, projectId: projectId.trim() };
 }
 
-function resolveTestEnv(cwd) {
-  if (typeof process.env.GCLOUD_PROJECT === 'string' && process.env.GCLOUD_PROJECT.trim()) {
-    return { env: process.env, source: null };
+function parseEnvFile(content) {
+  const parsed = {};
+  const lines = String(content).split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const idx = trimmed.indexOf('=');
+    if (idx <= 0) continue;
+    const key = trimmed.slice(0, idx).trim().replace(/^export\s+/, '');
+    let value = trimmed.slice(idx + 1).trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith('\'') && value.endsWith('\''))) {
+      value = value.slice(1, -1);
+    }
+    parsed[key] = value;
+  }
+  return parsed;
+}
+
+function profileVariants(alias) {
+  if (alias === 'default') return ['default', 'development'];
+  return [alias];
+}
+
+function loadProfileEnv(cwd, profileAlias) {
+  const variants = profileVariants(profileAlias);
+  const candidates = [
+    '.env',
+    '.env.test',
+    ...variants.flatMap((variant) => [`.env.${variant}`, `.env.test.${variant}`]),
+  ];
+  const merged = {};
+  for (const fileName of candidates) {
+    const fullPath = resolve(cwd, fileName);
+    if (!existsSync(fullPath)) continue;
+    Object.assign(merged, parseEnvFile(readFileSync(fullPath, 'utf8')));
+  }
+  return merged;
+}
+
+function resolveProfileAlias(args) {
+  const explicit = typeof args.profile === 'string' ? args.profile.trim() : '';
+  if (explicit) return explicit;
+  if (args.staging) return 'staging';
+  const envAlias = typeof process.env.FIREBASE_ALIAS === 'string' ? process.env.FIREBASE_ALIAS.trim() : '';
+  return envAlias || 'default';
+}
+
+function resolveFirebaseConfigPath(cwd, { explicitPath = null, profileAlias = 'default' } = {}) {
+  if (explicitPath) {
+    const resolvedPath = isAbsolute(explicitPath) ? explicitPath : resolve(cwd, explicitPath);
+    if (!existsSync(resolvedPath)) {
+      throw new Error(`firebase config file not found: ${resolvedPath}`);
+    }
+    return resolvedPath;
   }
 
-  const resolved = resolveFirebaseProjectFromRc(cwd);
+  const candidates = [
+    ...profileVariants(profileAlias).map((variant) => resolve(cwd, `firebase.${variant}.json`)),
+    resolve(cwd, 'firebase.json'),
+  ];
+  return candidates.find((candidate) => existsSync(candidate)) ?? null;
+}
+
+function resolveTestEnv(cwd, { profileAlias }) {
+  const profileEnv = loadProfileEnv(cwd, profileAlias);
+  const env = {
+    ...process.env,
+    ...profileEnv,
+  };
+  if (typeof process.env.GCLOUD_PROJECT === 'string' && process.env.GCLOUD_PROJECT.trim()) {
+    return { env, source: null };
+  }
+
+  const resolved = resolveFirebaseProjectFromRc(cwd, {
+    preferredAlias: profileAlias,
+    strictAlias: profileAlias !== 'default' || Boolean(process.env.FIREBASE_ALIAS?.trim()),
+  });
   if (!resolved) {
-    return { env: process.env, source: null };
+    return { env, source: null };
   }
 
   return {
     env: {
-      ...process.env,
+      ...env,
       GCLOUD_PROJECT: resolved.projectId,
       FIREBASE_PROJECT_ALIAS: resolved.alias,
     },
@@ -233,6 +309,12 @@ function rewriteInternalFirestackInvocations(command, internalBinPath) {
 function rewriteFirebaseCliInvocations(command) {
   if (typeof command !== 'string' || command.length === 0) return command;
   return command.replace(/\bnpx\s+firebase-tools\b/g, 'firebase');
+}
+
+function applyFirebaseConfigToCommand(command, firebaseConfigPath) {
+  if (typeof command !== 'string' || command.length === 0 || !firebaseConfigPath) return command;
+  const configArg = `--config ${escapeShell(firebaseConfigPath)}`;
+  return command.replace(/\bfirebase\s+emulators:exec\b/g, `firebase ${configArg} emulators:exec`);
 }
 
 function buildLogRoutedCommand(command, { routerScriptPath, mode, infraLogFile, suiteLogFile, appendLogs }) {
@@ -645,6 +727,8 @@ export function runTest(argv) {
   const args = {
     target: process.cwd(),
     config: null,
+    profile: '',
+    firebaseConfig: null,
     docker: false,
     dockerRebuild: false,
     failFast: false,
@@ -670,6 +754,16 @@ export function runTest(argv) {
     }
     if (token === '--config') {
       args.config = resolve(argv[i + 1] ?? 'firestack.config.json');
+      i += 1;
+      continue;
+    }
+    if (token === '--profile') {
+      args.profile = String(argv[i + 1] ?? '').trim();
+      i += 1;
+      continue;
+    }
+    if (token === '--firebase-config') {
+      args.firebaseConfig = String(argv[i + 1] ?? '').trim();
       i += 1;
       continue;
     }
@@ -707,7 +801,12 @@ export function runTest(argv) {
   }
 
   const { data: config } = loadProjectConfig(args.target, args.config);
-  const { env: testEnv, source: projectSource } = resolveTestEnv(args.target);
+  const profileAlias = resolveProfileAlias(args);
+  const { env: testEnv, source: projectSource } = resolveTestEnv(args.target, { profileAlias });
+  const resolvedFirebaseConfigPath = resolveFirebaseConfigPath(args.target, {
+    explicitPath: args.firebaseConfig,
+    profileAlias,
+  });
   const commands = config.test?.commands ?? {};
   const key = mapCommandKey(args);
   const firestackCliRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -721,8 +820,11 @@ export function runTest(argv) {
     throw new Error(`invalid --infra-logs value "${args.infraLogs}" (expected compact|verbose|quiet)`);
   }
   const configuredCommand = commands[key] ?? (key === 'ciFailFast' ? commands.ci : null);
-  const command = rewriteFirebaseCliInvocations(
-    rewriteInternalFirestackInvocations(configuredCommand, internalRunnerBin)
+  const command = applyFirebaseConfigToCommand(
+    rewriteFirebaseCliInvocations(
+      rewriteInternalFirestackInvocations(configuredCommand, internalRunnerBin)
+    ),
+    resolvedFirebaseConfigPath
   );
   if (!command) {
     throw new Error(`missing test command "${key}" in firestack.config.json`);
@@ -735,6 +837,9 @@ export function runTest(argv) {
     console.log(
       `[firestack] using Firebase project "${projectSource.projectId}" (alias "${projectSource.alias}") from .firebaserc`
     );
+  }
+  if (resolvedFirebaseConfigPath) {
+    console.log(`[firestack] using Firebase config "${resolvedFirebaseConfigPath}" for profile "${profileAlias}"`);
   }
 
   if (!args.docker) {
@@ -784,6 +889,7 @@ export function runTest(argv) {
       writablePaths,
     },
     env: testEnv,
+    firebaseConfigPath: resolvedFirebaseConfigPath,
     forceRebuild: args.dockerRebuild,
   });
   task.prepare();
@@ -795,8 +901,11 @@ export function runTest(argv) {
       `${logPrefix} missing GCLOUD_PROJECT for emulator-backed E2E. Set it explicitly or configure .firebaserc.`
     );
   }
+  const firebaseConfigArg = resolvedFirebaseConfigPath
+    ? ` --config ${escapeShell(resolvedFirebaseConfigPath)}`
+    : '';
   const dockerSuiteCommand = (key === 'e2eSmoke' || key === 'e2eFull') && !externalBaseUrl
-    ? `npm --prefix functions run build && firebase emulators:exec --project ${escapeShell(projectId)} ${escapeShell(command)}`
+    ? `npm --prefix functions run build && firebase${firebaseConfigArg} emulators:exec --project ${escapeShell(projectId)} ${escapeShell(command)}`
     : command;
   const setup = [];
   if (bootstrapCommand) setup.push(bootstrapCommand);

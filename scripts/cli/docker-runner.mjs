@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { resolve } from 'node:path';
+import { isAbsolute, relative, resolve } from 'node:path';
 
 function runDocker(args, options = {}) {
   return spawnSync('docker', args, options);
@@ -75,8 +75,9 @@ function normalizeRelativePath(value) {
   return trimmed;
 }
 
-function discoverFunctionsPaths(repoPath) {
-  const firebaseJson = readJsonStrict(resolve(repoPath, 'firebase.json'));
+function discoverFunctionsPaths(repoPath, firebaseConfigPath = null) {
+  const configPath = firebaseConfigPath ?? resolve(repoPath, 'firebase.json');
+  const firebaseJson = readJsonStrict(configPath);
   const discovered = [];
   const addCandidate = (candidate) => {
     const normalized = normalizeRelativePath(candidate);
@@ -345,10 +346,13 @@ export function defaultBootstrapCommand() {
   ].join(' && ');
 }
 
-export function createDockerTask({ cwd, logPrefix, dockerConfig, env = process.env, forceRebuild = false }) {
+export function createDockerTask({ cwd, logPrefix, dockerConfig, env = process.env, firebaseConfigPath = null, forceRebuild = false }) {
   const dockerfilePath = dockerConfig.dockerfile ?? 'tests/Dockerfile';
   const dockerfileAbsolutePath = resolve(cwd, dockerfilePath);
-  const functionsPaths = discoverFunctionsPaths(cwd);
+  const resolvedFirebaseConfigPath = firebaseConfigPath
+    ? (resolve(cwd, firebaseConfigPath))
+    : resolve(cwd, 'firebase.json');
+  const functionsPaths = discoverFunctionsPaths(cwd, resolvedFirebaseConfigPath);
   if (!existsSync(dockerfileAbsolutePath)) {
     fail(
       logPrefix,
@@ -389,7 +393,17 @@ export function createDockerTask({ cwd, logPrefix, dockerConfig, env = process.e
   const buildNetworkArgs = typeof buildNetwork === 'string' && buildNetwork.trim() !== ''
     ? ['--network', buildNetwork.trim()]
     : [];
-  const imageBuildArgs = [...buildNetworkArgs, ...buildHostArgs];
+  const firebaseConfigRelPathRaw = relative(cwd, resolvedFirebaseConfigPath).replaceAll('\\', '/');
+  if (firebaseConfigRelPathRaw.startsWith('..') || isAbsolute(firebaseConfigRelPathRaw)) {
+    fail(logPrefix, `firebase config path must be inside project root: ${resolvedFirebaseConfigPath}`);
+  }
+  const firebaseConfigRelPath = firebaseConfigRelPathRaw || 'firebase.json';
+  const imageBuildArgs = [
+    ...buildNetworkArgs,
+    ...buildHostArgs,
+    '--build-arg',
+    `FIREBASE_CONFIG_PATH=${firebaseConfigRelPath}`,
+  ];
   const writablePaths = Array.isArray(dockerConfig.writablePaths)
     ? dockerConfig.writablePaths
     : ['out'];
