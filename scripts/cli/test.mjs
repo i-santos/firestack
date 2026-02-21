@@ -31,7 +31,11 @@ function paint(text, ...styles) {
 }
 
 function printHelp() {
-  console.log('Usage: firestack test [--ci|--unit|--integration|--e2e|--staging] [--docker] [--docker-rebuild] [--fail-fast] [--full] [--target <dir>] [--config <path>]');
+  console.log(
+    'Usage: firestack test [--ci|--unit|--integration|--e2e|--staging] [--docker] [--docker-rebuild] [--fail-fast] [--full] ' +
+    '[--infra-logs <compact|verbose|quiet>] [--infra-log-file <path>] [--suite-log-file <path>] [--log-append] [--no-log-routing] ' +
+    '[--target <dir>] [--config <path>]'
+  );
 }
 
 function runShell(cwd, script, label, env = process.env) {
@@ -224,6 +228,31 @@ function rewriteInternalFirestackInvocations(command, internalBinPath) {
     /\b(?:npx\s+@igorsantos-dev\/firestack|npx\s+firestack|firestack)\s+internal\b/g,
     replacement
   );
+}
+
+function buildLogRoutedCommand(command, { routerScriptPath, mode, infraLogFile, suiteLogFile, appendLogs }) {
+  const ttyWidth = Number.isFinite(Number(process.stdout.columns)) && Number(process.stdout.columns) > 0
+    ? String(process.stdout.columns)
+    : '120';
+  const forcedStyleEnv = [
+    'FORCE_COLOR=1',
+    'CLICOLOR_FORCE=1',
+    'NPM_CONFIG_COLOR=always',
+    `PLAYWRIGHT_FORCE_TTY=${ttyWidth}`,
+    'TERM=xterm-256color',
+  ].join(' ');
+  const routerCommand = [
+    'node',
+    escapeShell(routerScriptPath),
+    '--mode',
+    escapeShell(mode),
+    '--infra-log',
+    escapeShell(infraLogFile),
+    '--suite-log',
+    escapeShell(suiteLogFile),
+    ...(appendLogs ? ['--append'] : ['--reset']),
+  ].join(' ');
+  return `set -o pipefail; env ${forcedStyleEnv} bash -lc ${escapeShell(command)} 2>&1 | ${routerCommand}`;
 }
 
 function normalizeRelativeWritablePath(cwd, rawPath) {
@@ -620,6 +649,11 @@ export function runTest(argv) {
     e2e: false,
     staging: false,
     full: false,
+    logRouting: true,
+    infraLogs: 'compact',
+    infraLogFile: 'out/tests/infra/emulator.log',
+    suiteLogFile: 'out/tests/suite/output.log',
+    logAppend: false,
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -643,6 +677,23 @@ export function runTest(argv) {
     if (token === '--e2e') { args.e2e = true; continue; }
     if (token === '--staging') { args.staging = true; continue; }
     if (token === '--full') { args.full = true; continue; }
+    if (token === '--infra-logs') {
+      args.infraLogs = String(argv[i + 1] ?? '').trim().toLowerCase();
+      i += 1;
+      continue;
+    }
+    if (token === '--infra-log-file') {
+      args.infraLogFile = String(argv[i + 1] ?? args.infraLogFile).trim() || args.infraLogFile;
+      i += 1;
+      continue;
+    }
+    if (token === '--suite-log-file') {
+      args.suiteLogFile = String(argv[i + 1] ?? args.suiteLogFile).trim() || args.suiteLogFile;
+      i += 1;
+      continue;
+    }
+    if (token === '--log-append') { args.logAppend = true; continue; }
+    if (token === '--no-log-routing') { args.logRouting = false; continue; }
     if (token === '-h' || token === '--help') {
       printHelp();
       process.exit(0);
@@ -658,6 +709,12 @@ export function runTest(argv) {
   const internalRunnerBin = args.docker
     ? '/firestack-cli/bin/firestack.mjs'
     : resolve(firestackCliRoot, 'bin/firestack.mjs');
+  const logRouterScriptPath = args.docker
+    ? '/firestack-cli/scripts/cli/internal-log-router.mjs'
+    : resolve(firestackCliRoot, 'scripts/cli/internal-log-router.mjs');
+  if (!new Set(['compact', 'verbose', 'quiet']).has(args.infraLogs)) {
+    throw new Error(`invalid --infra-logs value "${args.infraLogs}" (expected compact|verbose|quiet)`);
+  }
   const configuredCommand = commands[key] ?? (key === 'ciFailFast' ? commands.ci : null);
   const command = rewriteInternalFirestackInvocations(configuredCommand, internalRunnerBin);
   if (!command) {
@@ -674,7 +731,16 @@ export function runTest(argv) {
   }
 
   if (!args.docker) {
-    const status = runShell(args.target, command, key, testEnv);
+    const routedCommand = args.logRouting
+      ? buildLogRoutedCommand(command, {
+        routerScriptPath: logRouterScriptPath,
+        mode: args.infraLogs,
+        infraLogFile: args.infraLogFile,
+        suiteLogFile: args.suiteLogFile,
+        appendLogs: args.logAppend,
+      })
+      : command;
+    const status = runShell(args.target, routedCommand, key, testEnv);
     printTestSummary(args.target, key);
     process.exit(status);
   }
@@ -718,13 +784,22 @@ export function runTest(argv) {
     setup.push(dockerConfig.installCommand ?? 'npm ci');
   }
   setup.push(dockerSuiteCommand);
+  const runnableCommand = args.logRouting
+    ? buildLogRoutedCommand(setup.join(' && '), {
+      routerScriptPath: logRouterScriptPath,
+      mode: args.infraLogs,
+      infraLogFile: args.infraLogFile,
+      suiteLogFile: args.suiteLogFile,
+      appendLogs: args.logAppend,
+    })
+    : setup.join(' && ');
 
   console.log(`${logPrefix} image: ${task.image}`);
   console.log(`${logPrefix} node_modules volume: ${task.nodeModulesVolume}`);
   console.log(`${logPrefix} emulator cache volume: ${task.emulatorCacheVolume}`);
 
   const status = task.run({
-    command: setup.join(' && '),
+    command: runnableCommand,
     envNames: passThrough,
     extraArgs: ['-v', `${firestackCliRoot}:/firestack-cli:ro`],
   });

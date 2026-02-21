@@ -67,6 +67,9 @@ npx firestack test
 npx firestack test --ci --docker
 npx firestack test --ci --docker --docker-rebuild
 npx firestack test --ci --fail-fast
+npx firestack test --ci --infra-logs compact
+npx firestack test --ci --infra-logs verbose
+npx firestack test --ci --no-log-routing
 npx firestack test --unit
 npx firestack test --integration
 npx firestack test --e2e --full
@@ -75,6 +78,16 @@ npx firestack test --staging --full --docker
 
 No `--ci`, o padrão é executar `integration` e `e2e smoke` e falhar só no final se qualquer suite falhar.
 Para modo fail-fast, use `--fail-fast`.
+
+Roteamento de logs para melhor DX (padrão ativo):
+- `--infra-logs compact`: mantém output de testes no terminal e reduz ruído dos emuladores.
+- `--infra-logs verbose`: mostra tudo (comportamento tradicional).
+- `--infra-logs quiet`: mostra só infra importante (warnings/errors) no terminal.
+- `--infra-log-file <path>`: define destino do log completo de infra (default `out/tests/infra/emulator.log`).
+- `--suite-log-file <path>`: define destino do log de suites (default `out/tests/suite/output.log`).
+- por padrão, os arquivos de log são resetados a cada execução.
+- `--log-append`: acumula logs entre execuções (append).
+- `--no-log-routing`: desativa roteamento e mantém stdout original sem filtro.
 
 ## Docker (Imagem + Rebuild Inteligente)
 

@@ -29,15 +29,18 @@ async function waitForUrl(url, timeoutMs = 40_000) {
 }
 
 function detectViteUrlFromOutput(line) {
-  const direct = line.match(/(https?:\/\/127\.0\.0\.1:\d+)/);
+  const clean = line.replace(/\x1B\[[0-9;]*[A-Za-z]/g, '');
+  const direct = clean.match(/(https?:\/\/127\.0\.0\.1:\d+)/);
   if (direct) return direct[1];
-  const local = line.match(/Local:\s+(https?:\/\/[^\s]+)/);
+  const local = clean.match(/Local:\s+(https?:\/\/[^\s]+)/);
   return local ? local[1] : null;
 }
 
 function startDevServer() {
   return new Promise((resolve, reject) => {
     let settled = false;
+    let stdoutBuffer = '';
+    let stderrBuffer = '';
     const devServer = spawn('npm', ['run', 'dev', '--', '--host', '127.0.0.1', '--port', '5173'], {
       detached: process.platform !== 'win32',
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -52,19 +55,28 @@ function startDevServer() {
       const text = chunk.toString();
       process.stdout.write(text);
       if (settled) return;
-      const foundUrl = detectViteUrlFromOutput(text);
+      stdoutBuffer = `${stdoutBuffer}${text}`.slice(-16_384);
+      const foundUrl = detectViteUrlFromOutput(stdoutBuffer);
       if (foundUrl) {
         settled = true;
         resolve({ devServer, baseUrl: foundUrl });
+        return;
+      }
+      // Fallback: if Vite is ready but URL line is styled/fragmented unexpectedly,
+      // use the known host/port we launch with.
+      if (/VITE\s+v\d/i.test(stdoutBuffer) && /\bready in\b/i.test(stdoutBuffer)) {
+        settled = true;
+        resolve({ devServer, baseUrl: 'http://127.0.0.1:5173' });
       }
     };
 
     const onError = (chunk) => {
       const text = chunk.toString();
       process.stderr.write(text);
+      stderrBuffer = `${stderrBuffer}${text}`.slice(-8_192);
       if (!settled && /error/i.test(text)) {
         settled = true;
-        reject(new Error(`[test:e2e] failed to start app: ${text.trim()}`));
+        reject(new Error(`[test:e2e] failed to start app: ${stderrBuffer.trim()}`));
       }
     };
 
