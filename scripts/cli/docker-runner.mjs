@@ -68,9 +68,49 @@ function readJsonStrict(path) {
   }
 }
 
-function extractDependencyInputs(repoPath) {
+function normalizeRelativePath(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim().replace(/\\/g, '/').replace(/^\.?\//, '');
+  if (!trimmed || trimmed.startsWith('/') || trimmed.includes('..')) return null;
+  return trimmed;
+}
+
+function discoverFunctionsPaths(repoPath) {
+  const firebaseJson = readJsonStrict(resolve(repoPath, 'firebase.json'));
+  const discovered = [];
+  const addCandidate = (candidate) => {
+    const normalized = normalizeRelativePath(candidate);
+    if (!normalized) return;
+    if (existsSync(resolve(repoPath, normalized, 'package.json'))) {
+      discovered.push(normalized);
+    }
+  };
+
+  const functionsConfig = firebaseJson?.functions;
+  if (typeof functionsConfig === 'string') {
+    addCandidate(functionsConfig);
+  } else if (Array.isArray(functionsConfig)) {
+    for (const entry of functionsConfig) {
+      if (typeof entry === 'string') addCandidate(entry);
+      else if (entry && typeof entry === 'object') addCandidate(entry.source);
+    }
+  } else if (functionsConfig && typeof functionsConfig === 'object') {
+    addCandidate(functionsConfig.source);
+  }
+
+  if (discovered.length === 0 && existsSync(resolve(repoPath, 'functions', 'package.json'))) {
+    discovered.push('functions');
+  }
+
+  return [...new Set(discovered)];
+}
+
+function extractDependencyInputs(repoPath, functionsPaths = []) {
   const pkg = readJsonStrict(resolve(repoPath, 'package.json')) ?? {};
-  const functionsPkg = readJsonStrict(resolve(repoPath, 'functions', 'package.json')) ?? null;
+  const functionsPkgs = functionsPaths.map((path) => ({
+    path,
+    pkg: readJsonStrict(resolve(repoPath, path, 'package.json')) ?? null,
+  }));
   const relevant = {
     dependencies: pkg.dependencies ?? {},
     devDependencies: pkg.devDependencies ?? {},
@@ -79,29 +119,34 @@ function extractDependencyInputs(repoPath) {
     overrides: pkg.overrides ?? {},
     engines: pkg.engines ?? {},
     packageManager: pkg.packageManager ?? null,
-    functions: functionsPkg
-      ? {
-        dependencies: functionsPkg.dependencies ?? {},
-        devDependencies: functionsPkg.devDependencies ?? {},
-        optionalDependencies: functionsPkg.optionalDependencies ?? {},
-        peerDependencies: functionsPkg.peerDependencies ?? {},
-        overrides: functionsPkg.overrides ?? {},
-        engines: functionsPkg.engines ?? {},
-      }
-      : null,
+    functions: functionsPkgs
+      .filter(({ pkg }) => pkg)
+      .map(({ path, pkg: functionPkg }) => ({
+        path,
+        dependencies: functionPkg.dependencies ?? {},
+        devDependencies: functionPkg.devDependencies ?? {},
+        optionalDependencies: functionPkg.optionalDependencies ?? {},
+        peerDependencies: functionPkg.peerDependencies ?? {},
+        overrides: functionPkg.overrides ?? {},
+        engines: functionPkg.engines ?? {},
+      })),
   };
   return stableStringify(relevant);
 }
 
-function computeDepsHash(repoPath, dockerfilePath, lockfilePath = 'package-lock.json') {
+function computeDepsHash(repoPath, dockerfilePath, lockfilePath = 'package-lock.json', functionsPaths = []) {
   const dockerfile = readFileStrict(resolve(repoPath, dockerfilePath));
   const lockfile = readFileStrict(resolve(repoPath, lockfilePath));
-  const functionsLockfile = readFileStrict(resolve(repoPath, 'functions', 'package-lock.json'));
   const hash = createHash('sha256');
   hash.update(dockerfile ?? Buffer.from(''));
-  hash.update(extractDependencyInputs(repoPath));
+  hash.update(extractDependencyInputs(repoPath, functionsPaths));
   hash.update(lockfile ?? Buffer.from(''));
-  hash.update(functionsLockfile ?? Buffer.from(''));
+  for (const functionsPath of functionsPaths) {
+    const functionsLockfile = readFileStrict(resolve(repoPath, functionsPath, 'package-lock.json'));
+    const functionsNpmShrinkwrap = readFileStrict(resolve(repoPath, functionsPath, 'npm-shrinkwrap.json'));
+    hash.update(functionsLockfile ?? Buffer.from(''));
+    hash.update(functionsNpmShrinkwrap ?? Buffer.from(''));
+  }
   return hash.digest('hex').slice(0, 12);
 }
 
@@ -296,13 +341,14 @@ function ensureFirestoreEmulatorCached(logPrefix, image, cacheVolume, uid, gid) 
 export function defaultBootstrapCommand() {
   return [
     'if [ ! -d /work/node_modules/.bin ]; then mkdir -p /work/node_modules && cp -a /opt/deps/node_modules/. /work/node_modules/; fi',
-    'if [ -d /opt/deps/functions/node_modules ] && [ -f /work/functions/package.json ] && [ ! -d /work/functions/node_modules/.bin ]; then mkdir -p /work/functions/node_modules && cp -a /opt/deps/functions/node_modules/. /work/functions/node_modules/; fi',
+    'if [ -n "${FIRESTACK_FUNCTIONS_PATHS:-}" ]; then IFS=\',\' read -r -a firestack_functions <<< "$FIRESTACK_FUNCTIONS_PATHS"; for rel in "${firestack_functions[@]}"; do if [ -n "$rel" ] && [ -d "/opt/deps/$rel/node_modules" ] && [ -f "/work/$rel/package.json" ] && [ ! -d "/work/$rel/node_modules/.bin" ]; then mkdir -p "/work/$rel/node_modules" && cp -a "/opt/deps/$rel/node_modules/." "/work/$rel/node_modules/"; fi; done; fi',
   ].join(' && ');
 }
 
 export function createDockerTask({ cwd, logPrefix, dockerConfig, env = process.env, forceRebuild = false }) {
   const dockerfilePath = dockerConfig.dockerfile ?? 'tests/Dockerfile';
   const dockerfileAbsolutePath = resolve(cwd, dockerfilePath);
+  const functionsPaths = discoverFunctionsPaths(cwd);
   if (!existsSync(dockerfileAbsolutePath)) {
     fail(
       logPrefix,
@@ -315,11 +361,17 @@ export function createDockerTask({ cwd, logPrefix, dockerConfig, env = process.e
   const nodeModulesVolumePrefix = `${dockerConfig.nodeModulesVolumePrefix ?? 'firestack-node_modules-'}${namespace}-`;
   const functionsNodeModulesVolumePrefix = `${dockerConfig.functionsNodeModulesVolumePrefix ?? 'firestack-functions-node_modules-'}${namespace}-`;
   const emulatorCacheVolume = `${dockerConfig.emulatorCacheVolumePrefix ?? 'firestack-firebase-cache-'}${namespace}`;
-  const depsHash = computeDepsHash(cwd, dockerfilePath, dockerConfig.lockfilePath ?? 'package-lock.json');
+  const depsHash = computeDepsHash(cwd, dockerfilePath, dockerConfig.lockfilePath ?? 'package-lock.json', functionsPaths);
   const image = `${imageBaseName}:${depsHash}`;
   const nodeModulesVolume = `${nodeModulesVolumePrefix}${depsHash}`;
-  const hasFunctionsPackage = existsSync(resolve(cwd, 'functions', 'package.json'));
-  const functionsNodeModulesVolume = hasFunctionsPackage ? `${functionsNodeModulesVolumePrefix}${depsHash}` : null;
+  const functionModuleMounts = functionsPaths.map((path) => {
+    const pathHash = createHash('sha256').update(path).digest('hex').slice(0, 8);
+    return {
+      path,
+      volume: `${functionsNodeModulesVolumePrefix}${pathHash}-${depsHash}`,
+    };
+  });
+  const functionsPathsCsv = functionsPaths.join(',');
   const workdir = dockerConfig.workdir ?? '/work';
   const addHosts = Array.isArray(dockerConfig.addHosts) ? dockerConfig.addHosts : ['host.docker.internal:host-gateway'];
   const runAsHostUser = dockerConfig.runAsHostUser !== false;
@@ -352,15 +404,15 @@ export function createDockerTask({ cwd, logPrefix, dockerConfig, env = process.e
       if (useHostUser) {
         ensureBindPathsWritableForUser(logPrefix, image, cwd, process.getuid(), process.getgid(), workdir, writablePaths);
         ensureVolumeWritableForUser(logPrefix, image, nodeModulesVolume, process.getuid(), process.getgid(), workdir);
-        if (functionsNodeModulesVolume) {
+        for (const mount of functionModuleMounts) {
           ensureVolumeWritableForUser(
             logPrefix,
             image,
-            functionsNodeModulesVolume,
+            mount.volume,
             process.getuid(),
             process.getgid(),
             workdir,
-            'functions/node_modules'
+            `${mount.path}/node_modules`
           );
         }
         ensureVolumeWritableForUser(logPrefix, image, emulatorCacheVolume, process.getuid(), process.getgid(), '/firestack-cache', 'firebase/emulators');
@@ -380,7 +432,7 @@ export function createDockerTask({ cwd, logPrefix, dockerConfig, env = process.e
           imageBaseName,
           [nodeModulesVolumePrefix, functionsNodeModulesVolumePrefix, `${dockerConfig.emulatorCacheVolumePrefix ?? 'firestack-firebase-cache-'}${namespace}`],
           image,
-          [nodeModulesVolume, functionsNodeModulesVolume, emulatorCacheVolume]
+          [nodeModulesVolume, ...functionModuleMounts.map((mount) => mount.volume), emulatorCacheVolume]
         );
       }
     },
@@ -396,7 +448,7 @@ export function createDockerTask({ cwd, logPrefix, dockerConfig, env = process.e
         `${cwd}:${workdir}`,
         '-v',
         `${nodeModulesVolume}:${workdir}/node_modules`,
-        ...(functionsNodeModulesVolume ? ['-v', `${functionsNodeModulesVolume}:${workdir}/functions/node_modules`] : []),
+        ...functionModuleMounts.flatMap((mount) => ['-v', `${mount.volume}:${workdir}/${mount.path}/node_modules`]),
         '-v',
         `${emulatorCacheVolume}:/firestack-cache`,
         '-w',
@@ -407,6 +459,8 @@ export function createDockerTask({ cwd, logPrefix, dockerConfig, env = process.e
         ...dockerEnvArgs,
         '-e',
         'FIREBASE_EMULATORS_PATH=/firestack-cache/firebase/emulators',
+        '-e',
+        `FIRESTACK_FUNCTIONS_PATHS=${functionsPathsCsv}`,
         image,
         'bash',
         '-lc',

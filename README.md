@@ -108,7 +108,7 @@ Configure no `firestack.config.json`:
       "functionsNodeModulesVolumePrefix": "firestack-functions-node_modules-",
       "emulatorCacheVolumePrefix": "firestack-firebase-cache-",
       "buildNetwork": "host",
-      "bootstrapCommand": "if [ ! -d /work/node_modules/.bin ]; then mkdir -p /work/node_modules && cp -a /opt/deps/node_modules/. /work/node_modules/; fi && if [ -d /opt/deps/functions/node_modules ] && [ -f /work/functions/package.json ] && [ ! -d /work/functions/node_modules/.bin ]; then mkdir -p /work/functions/node_modules && cp -a /opt/deps/functions/node_modules/. /work/functions/node_modules/; fi",
+      "bootstrapCommand": "if [ ! -d /work/node_modules/.bin ]; then mkdir -p /work/node_modules && cp -a /opt/deps/node_modules/. /work/node_modules/; fi && if [ -n \"${FIRESTACK_FUNCTIONS_PATHS:-}\" ]; then IFS=',' read -r -a firestack_functions <<< \"$FIRESTACK_FUNCTIONS_PATHS\"; for rel in \"${firestack_functions[@]}\"; do if [ -n \"$rel\" ] && [ -d \"/opt/deps/$rel/node_modules\" ] && [ -f \"/work/$rel/package.json\" ] && [ ! -d \"/work/$rel/node_modules/.bin\" ]; then mkdir -p \"/work/$rel/node_modules\" && cp -a \"/opt/deps/$rel/node_modules/.\" \"/work/$rel/node_modules/\"; fi; done; fi",
       "runAsHostUser": true,
       "preloadFirestoreEmulator": true,
       "writablePaths": ["out"],
@@ -124,11 +124,12 @@ Configure no `firestack.config.json`:
 ```
 
 No modo `--docker`, o FireStack:
-- builda imagem com tag baseada em hash de `Dockerfile` + lockfiles + deps de `package.json` (raiz e `functions`, quando existir);
+- detecta módulos Cloud Functions automaticamente via `firebase.json` (`functions.source`, incluindo múltiplos codebases);
+- builda imagem com tag baseada em hash de `Dockerfile` + lockfiles + deps de `package.json` (raiz + módulos Functions detectados);
 - reutiliza imagem/volume quando o hash não muda;
 - faz rebuild automático quando deps mudam;
 - monta `node_modules` em volume dedicado por hash para acelerar as execuções.
-- monta `functions/node_modules` em volume dedicado por hash quando `functions/package.json` existe.
+- monta `<functions.source>/node_modules` em volume dedicado por hash para cada módulo detectado.
 - mantém cache persistente dos emulators Firebase em volume Docker dedicado e prioriza seed do cache a partir da imagem.
 
 Para forçar rebuild manual da imagem:

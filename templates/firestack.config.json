@@ -60,7 +60,7 @@
       "writablePaths": [
         "out"
       ],
-      "bootstrapCommand": "if [ ! -d /work/node_modules/.bin ]; then mkdir -p /work/node_modules && cp -a /opt/deps/node_modules/. /work/node_modules/; fi && if [ -d /opt/deps/functions/node_modules ] && [ -f /work/functions/package.json ] && [ ! -d /work/functions/node_modules/.bin ]; then mkdir -p /work/functions/node_modules && cp -a /opt/deps/functions/node_modules/. /work/functions/node_modules/; fi",
+      "bootstrapCommand": "if [ ! -d /work/node_modules/.bin ]; then mkdir -p /work/node_modules && cp -a /opt/deps/node_modules/. /work/node_modules/; fi && if [ -n \"${FIRESTACK_FUNCTIONS_PATHS:-}\" ]; then IFS=',' read -r -a firestack_functions <<< \"$FIRESTACK_FUNCTIONS_PATHS\"; for rel in \"${firestack_functions[@]}\"; do if [ -n \"$rel\" ] && [ -d \"/opt/deps/$rel/node_modules\" ] && [ -f \"/work/$rel/package.json\" ] && [ ! -d \"/work/$rel/node_modules/.bin\" ]; then mkdir -p \"/work/$rel/node_modules\" && cp -a \"/opt/deps/$rel/node_modules/.\" \"/work/$rel/node_modules/\"; fi; done; fi",
       "cleanup": true,
       "stagingProjectId": "staging-present-goal",
       "addHosts": [
