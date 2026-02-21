@@ -129,6 +129,7 @@ Configure no `firestack.config.json`:
 ```
 
 No modo `--docker`, o FireStack:
+- escolhe capacidade de build por suíte (`unit`, `integration`, `e2e`) para reduzir custo no primeiro build;
 - detecta módulos Cloud Functions automaticamente via config Firebase resolvida (`--firebase-config` ou fallback de profile; `functions.source`, incluindo múltiplos codebases);
 - builda imagem com tag baseada em hash de `Dockerfile` + lockfiles + deps de `package.json` (raiz + módulos Functions detectados);
 - reutiliza imagem/volume quando o hash não muda;
@@ -136,6 +137,11 @@ No modo `--docker`, o FireStack:
 - monta `node_modules` em volume dedicado por hash para acelerar as execuções.
 - monta `<functions.source>/node_modules` em volume dedicado por hash para cada módulo detectado.
 - mantém cache persistente dos emulators Firebase em volume Docker dedicado e prioriza seed do cache a partir da imagem.
+
+Exemplo prático:
+- `--unit --docker` usa tier leve (Node base, sem toolchain de emulator), reduzindo tempo de build inicial.
+- ao rodar depois `--integration` ou `--e2e`, o FireStack detecta necessidade de tier maior e faz rebuild automático da mesma imagem.
+- depois do upgrade, voltar para `--unit` não força rebuild (a imagem já atende tiers inferiores).
 
 Para forçar rebuild manual da imagem:
 

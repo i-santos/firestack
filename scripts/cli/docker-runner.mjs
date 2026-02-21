@@ -135,7 +135,12 @@ function extractDependencyInputs(repoPath, functionsPaths = []) {
   return stableStringify(relevant);
 }
 
-function computeDepsHash(repoPath, dockerfilePath, lockfilePath = 'package-lock.json', functionsPaths = []) {
+function computeDepsHash(
+  repoPath,
+  dockerfilePath,
+  lockfilePath = 'package-lock.json',
+  functionsPaths = []
+) {
   const dockerfile = readFileStrict(resolve(repoPath, dockerfilePath));
   const lockfile = readFileStrict(resolve(repoPath, lockfilePath));
   const hash = createHash('sha256');
@@ -177,10 +182,29 @@ function cleanupOldDockerArtifacts(logPrefix, imageBaseName, volumePrefixes, kee
 }
 
 function ensureImage(logPrefix, image, dockerfilePath, repoPath, depsHash, buildArgs = [], forceRebuild = false) {
-  const imageExists = runDocker(['image', 'inspect', image], { stdio: 'ignore' }).status === 0;
-  if (imageExists && !forceRebuild) return;
-  if (imageExists && forceRebuild) {
-    console.log(`${logPrefix} force rebuild enabled. removing cached image ${image}`);
+  const inspectResult = runDocker(['image', 'inspect', image], { encoding: 'utf8' });
+  const imageExists = (inspectResult.status ?? 1) === 0;
+  let labels = {};
+  if (imageExists) {
+    try {
+      const parsed = JSON.parse(inspectResult.stdout ?? '[]');
+      labels = parsed?.[0]?.Config?.Labels ?? {};
+    } catch {
+      labels = {};
+    }
+  }
+
+  const expectedRank = Number(buildArgs.find((arg) => arg.startsWith('FIRESTACK_CAPABILITY_RANK='))?.split('=')[1] ?? '3');
+  const currentRank = Number(labels['io.firestack.capability-rank'] ?? '-1');
+  const currentDepsHash = String(labels['io.firestack.deps-hash'] ?? '');
+  const needsUpgrade = imageExists && (currentRank < expectedRank || currentDepsHash !== depsHash);
+
+  if (imageExists && !forceRebuild && !needsUpgrade) return;
+  if (imageExists && (forceRebuild || needsUpgrade)) {
+    const reason = forceRebuild
+      ? 'force rebuild enabled'
+      : `rebuild required (current tier=${Number.isFinite(currentRank) ? currentRank : 'unknown'}, target tier=${expectedRank}, deps hash changed=${currentDepsHash !== depsHash})`;
+    console.log(`${logPrefix} ${reason}. removing cached image ${image}`);
     runDockerStrict(logPrefix, 'failed to remove docker image for rebuild', ['image', 'rm', image], { stdio: 'inherit' });
   }
   console.log(`${logPrefix} building image ${image} (deps hash: ${depsHash})`);
@@ -346,9 +370,52 @@ export function defaultBootstrapCommand() {
   ].join(' && ');
 }
 
-export function createDockerTask({ cwd, logPrefix, dockerConfig, env = process.env, firebaseConfigPath = null, forceRebuild = false }) {
+function resolveDockerCapability(suiteKey) {
+  if (suiteKey === 'unit') return 'unit';
+  if (suiteKey === 'integration') return 'integration';
+  if (
+    suiteKey === 'e2eSmoke' ||
+    suiteKey === 'e2eFull' ||
+    suiteKey === 'stagingSmoke' ||
+    suiteKey === 'stagingFull' ||
+    suiteKey === 'ci' ||
+    suiteKey === 'ciFailFast'
+  ) {
+    return 'e2e';
+  }
+  return 'e2e';
+}
+
+function resolveBaseImageForCapability(capability, dockerConfig = {}) {
+  if (capability === 'unit') {
+    return dockerConfig.unitBaseImage ?? dockerConfig.nodeBaseImage ?? 'node:20-bookworm-slim';
+  }
+  if (capability === 'integration') {
+    return dockerConfig.integrationBaseImage ?? dockerConfig.nodeBaseImage ?? 'node:20-bookworm';
+  }
+  return dockerConfig.e2eBaseImage ?? 'mcr.microsoft.com/playwright:v1.58.2-noble';
+}
+
+function capabilityRank(capability) {
+  if (capability === 'unit') return 1;
+  if (capability === 'integration') return 2;
+  return 3;
+}
+
+export function createDockerTask({
+  cwd,
+  logPrefix,
+  suiteKey = 'ci',
+  dockerConfig,
+  env = process.env,
+  firebaseConfigPath = null,
+  forceRebuild = false,
+}) {
   const dockerfilePath = dockerConfig.dockerfile ?? 'tests/Dockerfile';
   const dockerfileAbsolutePath = resolve(cwd, dockerfilePath);
+  const capability = resolveDockerCapability(suiteKey);
+  const baseImage = resolveBaseImageForCapability(capability, dockerConfig);
+  const usesFirebaseTooling = capability !== 'unit';
   const resolvedFirebaseConfigPath = firebaseConfigPath
     ? (resolve(cwd, firebaseConfigPath))
     : resolve(cwd, 'firebase.json');
@@ -365,8 +432,13 @@ export function createDockerTask({ cwd, logPrefix, dockerConfig, env = process.e
   const nodeModulesVolumePrefix = `${dockerConfig.nodeModulesVolumePrefix ?? 'firestack-node_modules-'}${namespace}-`;
   const functionsNodeModulesVolumePrefix = `${dockerConfig.functionsNodeModulesVolumePrefix ?? 'firestack-functions-node_modules-'}${namespace}-`;
   const emulatorCacheVolume = `${dockerConfig.emulatorCacheVolumePrefix ?? 'firestack-firebase-cache-'}${namespace}`;
-  const depsHash = computeDepsHash(cwd, dockerfilePath, dockerConfig.lockfilePath ?? 'package-lock.json', functionsPaths);
-  const image = `${imageBaseName}:${depsHash}`;
+  const depsHash = computeDepsHash(
+    cwd,
+    dockerfilePath,
+    dockerConfig.lockfilePath ?? 'package-lock.json',
+    functionsPaths
+  );
+  const image = `${imageBaseName}:rolling`;
   const nodeModulesVolume = `${nodeModulesVolumePrefix}${depsHash}`;
   const functionModuleMounts = functionsPaths.map((path) => {
     const pathHash = createHash('sha256').update(path).digest('hex').slice(0, 8);
@@ -393,26 +465,42 @@ export function createDockerTask({ cwd, logPrefix, dockerConfig, env = process.e
   const buildNetworkArgs = typeof buildNetwork === 'string' && buildNetwork.trim() !== ''
     ? ['--network', buildNetwork.trim()]
     : [];
-  const firebaseConfigRelPathRaw = relative(cwd, resolvedFirebaseConfigPath).replaceAll('\\', '/');
-  if (firebaseConfigRelPathRaw.startsWith('..') || isAbsolute(firebaseConfigRelPathRaw)) {
-    fail(logPrefix, `firebase config path must be inside project root: ${resolvedFirebaseConfigPath}`);
+  let firebaseConfigRelPath = 'firebase.json';
+  if (usesFirebaseTooling) {
+    const firebaseConfigRelPathRaw = relative(cwd, resolvedFirebaseConfigPath).replaceAll('\\', '/');
+    if (firebaseConfigRelPathRaw.startsWith('..') || isAbsolute(firebaseConfigRelPathRaw)) {
+      fail(logPrefix, `firebase config path must be inside project root: ${resolvedFirebaseConfigPath}`);
+    }
+    firebaseConfigRelPath = firebaseConfigRelPathRaw || 'firebase.json';
   }
-  const firebaseConfigRelPath = firebaseConfigRelPathRaw || 'firebase.json';
   const imageBuildArgs = [
     ...buildNetworkArgs,
     ...buildHostArgs,
     '--build-arg',
+    `FIRESTACK_TEST_CAPABILITY=${capability}`,
+    '--build-arg',
+    `FIRESTACK_CAPABILITY_RANK=${capabilityRank(capability)}`,
+    '--build-arg',
+    `FIRESTACK_DOCKER_BASE_IMAGE=${baseImage}`,
+    '--build-arg',
     `FIREBASE_CONFIG_PATH=${firebaseConfigRelPath}`,
+    '--label',
+    `io.firestack.deps-hash=${depsHash}`,
+    '--label',
+    `io.firestack.capability=${capability}`,
+    '--label',
+    `io.firestack.capability-rank=${capabilityRank(capability)}`,
   ];
   const writablePaths = Array.isArray(dockerConfig.writablePaths)
     ? dockerConfig.writablePaths
     : ['out'];
-  const preloadFirestoreEmulator = dockerConfig.preloadFirestoreEmulator !== false;
+  const preloadFirestoreEmulator = usesFirebaseTooling && dockerConfig.preloadFirestoreEmulator !== false;
 
   return {
     image,
     nodeModulesVolume,
     emulatorCacheVolume,
+    capability,
     prepare() {
       ensureImage(logPrefix, image, dockerfilePath, cwd, depsHash, imageBuildArgs, forceRebuild);
       if (useHostUser) {
