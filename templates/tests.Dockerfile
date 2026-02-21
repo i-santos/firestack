@@ -1,5 +1,6 @@
-FROM mcr.microsoft.com/playwright:v1.58.2-noble
+FROM mcr.microsoft.com/playwright:v1.58.2-noble AS base
 FROM eclipse-temurin:21-jre AS jre21
+FROM base
 
 USER root
 
