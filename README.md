@@ -113,7 +113,6 @@ Configure no `firestack.config.json`:
       "preloadFirestoreEmulator": true,
       "writablePaths": ["out"],
       "addHosts": ["host.docker.internal:host-gateway"],
-      "stagingProjectId": "staging-present-goal",
       "registry": {
         "defaultHostUrl": "http://127.0.0.1:4873",
         "defaultDockerUrl": "http://host.docker.internal:4873"
@@ -142,6 +141,7 @@ Guards compatíveis com os scripts legados:
 - `ci --docker` bloqueia `E2E_BASE_URL` externo (a menos de `ALLOW_NON_STAGING_E2E=true`);
 - `e2e --docker` valida host permitido para `E2E_BASE_URL`;
 - `staging --docker` valida `GCLOUD_PROJECT` e host staging.
+- por padrão, `GCLOUD_PROJECT` é resolvido de `.firebaserc` (ou de env se já definido). Se quiser travar staging em um projeto específico, configure `test.docker.stagingProjectId`.
 
 `runAsHostUser: true` mantém escrita no bind mount com UID/GID do host.
 Para lockfiles com pacotes em registry local (`127.0.0.1`), use `buildNetwork: "host"` no Linux para o `npm ci` do build enxergar o Verdaccio do host.

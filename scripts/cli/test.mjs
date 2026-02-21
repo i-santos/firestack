@@ -762,8 +762,16 @@ export function runTest(argv) {
   } else if (key === 'e2eSmoke' || key === 'e2eFull') {
     validateExternalBaseUrl(externalBaseUrl, testEnv, logPrefix);
   } else if (key === 'stagingSmoke' || key === 'stagingFull') {
-    const expectedProjectId = dockerConfig.stagingProjectId ?? 'staging-present-goal';
-    requireProject(expectedProjectId, testEnv.GCLOUD_PROJECT ?? expectedProjectId, logPrefix);
+    const configuredStagingProjectId = typeof dockerConfig.stagingProjectId === 'string'
+      ? dockerConfig.stagingProjectId.trim()
+      : '';
+    if (configuredStagingProjectId) {
+      requireProject(configuredStagingProjectId, testEnv.GCLOUD_PROJECT ?? configuredStagingProjectId, logPrefix);
+    } else if (!testEnv.GCLOUD_PROJECT?.trim()) {
+      throw new Error(
+        `${logPrefix} missing GCLOUD_PROJECT. Set it explicitly or configure .firebaserc (alias "default" or FIREBASE_ALIAS).`
+      );
+    }
     validateStagingBaseUrl(testEnv.E2E_BASE_URL ?? 'https://staging.presentgoal.com', testEnv, logPrefix);
   }
 
@@ -781,7 +789,12 @@ export function runTest(argv) {
   task.prepare();
 
   const bootstrapCommand = dockerConfig.bootstrapCommand ?? defaultBootstrapCommand();
-  const projectId = testEnv.GCLOUD_PROJECT ?? 'demo-present-goal';
+  const projectId = testEnv.GCLOUD_PROJECT?.trim();
+  if ((key === 'e2eSmoke' || key === 'e2eFull') && !externalBaseUrl && !projectId) {
+    throw new Error(
+      `${logPrefix} missing GCLOUD_PROJECT for emulator-backed E2E. Set it explicitly or configure .firebaserc.`
+    );
+  }
   const dockerSuiteCommand = (key === 'e2eSmoke' || key === 'e2eFull') && !externalBaseUrl
     ? `npm --prefix functions run build && firebase emulators:exec --project ${escapeShell(projectId)} ${escapeShell(command)}`
     : command;

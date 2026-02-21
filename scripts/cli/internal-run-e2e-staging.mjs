@@ -11,8 +11,16 @@ import {
 
 const suite = resolveSuite(process.argv[2]);
 const runId = buildRunId(process.env.E2E_RUN_ID ?? `stg-${suite}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
-const expectedProjectId = process.env.STAGING_PROJECT_ID?.trim() || 'staging-present-goal';
-const projectId = requireProject(expectedProjectId, process.env.GCLOUD_PROJECT ?? expectedProjectId, '[test:e2e:staging]');
+const configuredProjectId = process.env.STAGING_PROJECT_ID?.trim();
+const currentProjectId = process.env.GCLOUD_PROJECT?.trim();
+if (!currentProjectId) {
+  throw new Error(
+    '[test:e2e:staging] missing GCLOUD_PROJECT. Set it explicitly or configure .firebaserc (default alias or FIREBASE_ALIAS).'
+  );
+}
+const projectId = configuredProjectId
+  ? requireProject(configuredProjectId, currentProjectId, '[test:e2e:staging]')
+  : currentProjectId;
 const baseUrl = process.env.E2E_BASE_URL ?? 'https://staging.presentgoal.com';
 validateStagingBaseUrl(baseUrl, '[test:e2e:staging]');
 

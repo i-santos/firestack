@@ -42,8 +42,8 @@
       "integration": "npm --prefix functions run build && firebase emulators:exec --project ${GCLOUD_PROJECT:?Set GCLOUD_PROJECT} \"firestack internal run-integration-report\"",
       "e2eSmoke": "mkdir -p out/tests/e2e && rm -f out/tests/e2e/junit.xml && rm -rf out/tests/e2e/html out/tests/e2e/artifacts && firestack internal run-e2e smoke",
       "e2eFull": "mkdir -p out/tests/e2e && rm -f out/tests/e2e/junit.xml && rm -rf out/tests/e2e/html out/tests/e2e/artifacts && firestack internal run-e2e full",
-      "stagingSmoke": "mkdir -p out/tests/e2e/staging && rm -f out/tests/e2e/staging/junit.xml && rm -rf out/tests/e2e/staging/html out/tests/e2e/staging/artifacts && bash -lc 'set -a; if [ -f .env.test.staging ]; then . ./.env.test.staging; fi; set +a; STAGING_PROJECT_ID=staging-present-goal firestack internal run-e2e-staging smoke'",
-      "stagingFull": "mkdir -p out/tests/e2e/staging && rm -f out/tests/e2e/staging/junit.xml && rm -rf out/tests/e2e/staging/html out/tests/e2e/staging/artifacts && bash -lc 'set -a; if [ -f .env.test.staging ]; then . ./.env.test.staging; fi; set +a; STAGING_PROJECT_ID=staging-present-goal firestack internal run-e2e-staging full'",
+      "stagingSmoke": "mkdir -p out/tests/e2e/staging && rm -f out/tests/e2e/staging/junit.xml && rm -rf out/tests/e2e/staging/html out/tests/e2e/staging/artifacts && bash -lc 'set -a; if [ -f .env.test.staging ]; then . ./.env.test.staging; fi; set +a; firestack internal run-e2e-staging smoke'",
+      "stagingFull": "mkdir -p out/tests/e2e/staging && rm -f out/tests/e2e/staging/junit.xml && rm -rf out/tests/e2e/staging/html out/tests/e2e/staging/artifacts && bash -lc 'set -a; if [ -f .env.test.staging ]; then . ./.env.test.staging; fi; set +a; firestack internal run-e2e-staging full'",
       "ci": "mkdir -p out/tests/unit out/tests/e2e && rm -rf out/tests/e2e/html out/tests/e2e/artifacts && node --test --experimental-strip-types --test-reporter=junit --test-reporter-destination=out/tests/unit/junit.xml tests/unit/**/*.test.ts && npm --prefix functions run build && firebase emulators:exec --project ${GCLOUD_PROJECT:?Set GCLOUD_PROJECT} \"bash -lc 'set +e; firestack internal run-integration-report; integration_status=\\$?; firestack internal run-e2e smoke; e2e_status=\\$?; set -e; if [ \\$integration_status -ne 0 ] || [ \\$e2e_status -ne 0 ]; then exit 1; fi'\"",
       "ciFailFast": "mkdir -p out/tests/unit out/tests/e2e && rm -rf out/tests/e2e/html out/tests/e2e/artifacts && node --test --experimental-strip-types --test-reporter=junit --test-reporter-destination=out/tests/unit/junit.xml tests/unit/**/*.test.ts && npm --prefix functions run build && firebase emulators:exec --project ${GCLOUD_PROJECT:?Set GCLOUD_PROJECT} \"firestack internal run-integration-report && firestack internal run-e2e smoke\""
     },
@@ -62,7 +62,6 @@
       ],
       "bootstrapCommand": "if [ ! -d /work/node_modules/.bin ]; then mkdir -p /work/node_modules && cp -a /opt/deps/node_modules/. /work/node_modules/; fi && if [ -n \"${FIRESTACK_FUNCTIONS_PATHS:-}\" ]; then IFS=',' read -r -a firestack_functions <<< \"$FIRESTACK_FUNCTIONS_PATHS\"; for rel in \"${firestack_functions[@]}\"; do if [ -n \"$rel\" ] && [ -d \"/opt/deps/$rel/node_modules\" ] && [ -f \"/work/$rel/package.json\" ] && [ ! -d \"/work/$rel/node_modules/.bin\" ]; then mkdir -p \"/work/$rel/node_modules\" && cp -a \"/opt/deps/$rel/node_modules/.\" \"/work/$rel/node_modules/\"; fi; done; fi",
       "cleanup": true,
-      "stagingProjectId": "staging-present-goal",
       "addHosts": [
         "host.docker.internal:host-gateway"
       ],
