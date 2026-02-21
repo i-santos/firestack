@@ -68,6 +68,69 @@ function readJsonStrict(path) {
   }
 }
 
+const IGNORE_IMAGE_HASH_PACKAGES = new Set([
+  '@igorsantos-dev/firestack',
+]);
+
+function sanitizeDependencyObject(deps) {
+  if (!deps || typeof deps !== 'object') return {};
+  return Object.fromEntries(
+    Object.entries(deps).filter(([name]) => !IGNORE_IMAGE_HASH_PACKAGES.has(name))
+  );
+}
+
+function sanitizeLockDependencyTree(node) {
+  if (!node || typeof node !== 'object' || Array.isArray(node)) return node;
+  const sanitized = {};
+  for (const [key, value] of Object.entries(node)) {
+    if (IGNORE_IMAGE_HASH_PACKAGES.has(key)) continue;
+    if (key === 'requires' || key === 'dependencies' || key === 'optionalDependencies' || key === 'peerDependencies') {
+      sanitized[key] = sanitizeDependencyObject(value);
+      continue;
+    }
+    sanitized[key] = sanitizeLockDependencyTree(value);
+  }
+  return sanitized;
+}
+
+function sanitizePackageLockJson(lockJson) {
+  if (!lockJson || typeof lockJson !== 'object' || Array.isArray(lockJson)) return lockJson;
+  const sanitized = sanitizeLockDependencyTree(lockJson);
+
+  if (sanitized.packages && typeof sanitized.packages === 'object') {
+    for (const key of Object.keys(sanitized.packages)) {
+      const normalized = key.replace(/\\/g, '/');
+      if (
+        normalized === 'node_modules/@igorsantos-dev/firestack' ||
+        normalized.endsWith('/node_modules/@igorsantos-dev/firestack')
+      ) {
+        delete sanitized.packages[key];
+      }
+    }
+
+    const root = sanitized.packages[''];
+    if (root && typeof root === 'object') {
+      root.dependencies = sanitizeDependencyObject(root.dependencies);
+      root.devDependencies = sanitizeDependencyObject(root.devDependencies);
+      root.optionalDependencies = sanitizeDependencyObject(root.optionalDependencies);
+      root.peerDependencies = sanitizeDependencyObject(root.peerDependencies);
+    }
+  }
+
+  sanitized.dependencies = sanitizeDependencyObject(sanitized.dependencies);
+  return sanitized;
+}
+
+function readSanitizedLockfileString(path, { sanitize = false } = {}) {
+  const lockJson = readJsonStrict(path);
+  if (!lockJson) {
+    const raw = readFileStrict(path);
+    return raw ? raw.toString('utf8') : '';
+  }
+  const normalized = sanitize ? sanitizePackageLockJson(lockJson) : lockJson;
+  return stableStringify(normalized);
+}
+
 function normalizeRelativePath(value) {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim().replace(/\\/g, '/').replace(/^\.?\//, '');
@@ -113,10 +176,10 @@ function extractDependencyInputs(repoPath, functionsPaths = []) {
     pkg: readJsonStrict(resolve(repoPath, path, 'package.json')) ?? null,
   }));
   const relevant = {
-    dependencies: pkg.dependencies ?? {},
-    devDependencies: pkg.devDependencies ?? {},
-    optionalDependencies: pkg.optionalDependencies ?? {},
-    peerDependencies: pkg.peerDependencies ?? {},
+    dependencies: sanitizeDependencyObject(pkg.dependencies),
+    devDependencies: sanitizeDependencyObject(pkg.devDependencies),
+    optionalDependencies: sanitizeDependencyObject(pkg.optionalDependencies),
+    peerDependencies: sanitizeDependencyObject(pkg.peerDependencies),
     overrides: pkg.overrides ?? {},
     engines: pkg.engines ?? {},
     packageManager: pkg.packageManager ?? null,
@@ -124,10 +187,10 @@ function extractDependencyInputs(repoPath, functionsPaths = []) {
       .filter(({ pkg }) => pkg)
       .map(({ path, pkg: functionPkg }) => ({
         path,
-        dependencies: functionPkg.dependencies ?? {},
-        devDependencies: functionPkg.devDependencies ?? {},
-        optionalDependencies: functionPkg.optionalDependencies ?? {},
-        peerDependencies: functionPkg.peerDependencies ?? {},
+        dependencies: sanitizeDependencyObject(functionPkg.dependencies),
+        devDependencies: sanitizeDependencyObject(functionPkg.devDependencies),
+        optionalDependencies: sanitizeDependencyObject(functionPkg.optionalDependencies),
+        peerDependencies: sanitizeDependencyObject(functionPkg.peerDependencies),
         overrides: functionPkg.overrides ?? {},
         engines: functionPkg.engines ?? {},
       })),
@@ -137,16 +200,16 @@ function extractDependencyInputs(repoPath, functionsPaths = []) {
 
 function computeDepsHash(repoPath, dockerfilePath, lockfilePath = 'package-lock.json', functionsPaths = []) {
   const dockerfile = readFileStrict(resolve(repoPath, dockerfilePath));
-  const lockfile = readFileStrict(resolve(repoPath, lockfilePath));
+  const lockfile = readSanitizedLockfileString(resolve(repoPath, lockfilePath), { sanitize: true });
   const hash = createHash('sha256');
   hash.update(dockerfile ?? Buffer.from(''));
   hash.update(extractDependencyInputs(repoPath, functionsPaths));
-  hash.update(lockfile ?? Buffer.from(''));
+  hash.update(lockfile);
   for (const functionsPath of functionsPaths) {
-    const functionsLockfile = readFileStrict(resolve(repoPath, functionsPath, 'package-lock.json'));
-    const functionsNpmShrinkwrap = readFileStrict(resolve(repoPath, functionsPath, 'npm-shrinkwrap.json'));
-    hash.update(functionsLockfile ?? Buffer.from(''));
-    hash.update(functionsNpmShrinkwrap ?? Buffer.from(''));
+    const functionsLockfile = readSanitizedLockfileString(resolve(repoPath, functionsPath, 'package-lock.json'));
+    const functionsNpmShrinkwrap = readSanitizedLockfileString(resolve(repoPath, functionsPath, 'npm-shrinkwrap.json'));
+    hash.update(functionsLockfile);
+    hash.update(functionsNpmShrinkwrap);
   }
   return hash.digest('hex').slice(0, 12);
 }
