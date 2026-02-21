@@ -5,6 +5,7 @@ FROM base
 USER root
 
 ARG FIREBASE_CONFIG_PATH=firebase.json
+ARG FIRESTACK_FUNCTIONS_INSTALL_PATHS=
 
 COPY --from=jre21 /opt/java/openjdk /opt/java/openjdk
 ENV JAVA_HOME=/opt/java/openjdk
@@ -24,7 +25,14 @@ RUN npm install -g firebase-tools \
 COPY . .
 
 RUN --mount=type=cache,target=/root/.npm \
-  if [ -f "$FIREBASE_CONFIG_PATH" ]; then \
+  if [ -n "$FIRESTACK_FUNCTIONS_INSTALL_PATHS" ]; then \
+    IFS=',' read -r -a firestack_functions <<< "$FIRESTACK_FUNCTIONS_INSTALL_PATHS"; \
+    for rel in "${firestack_functions[@]}"; do \
+      [ -z "$rel" ] && continue; \
+      [ ! -f "$rel/package.json" ] && continue; \
+      (cd "$rel" && (npm ci || npm install)); \
+    done; \
+  elif [ -f "$FIREBASE_CONFIG_PATH" ]; then \
     FIREBASE_CONFIG_PATH="$FIREBASE_CONFIG_PATH" node -e "const fs=require('fs');const p=process.env.FIREBASE_CONFIG_PATH||'firebase.json';const cfg=JSON.parse(fs.readFileSync(p,'utf8'));const found=[];const add=(v)=>{if(typeof v!=='string')return;const n=v.trim().replace(/\\\\/g,'/').replace(/^\\.\\//,'');if(!n||n.startsWith('/')||n.includes('..'))return;if(fs.existsSync(n+'/package.json'))found.push(n);};const f=cfg.functions;if(typeof f==='string')add(f);else if(Array.isArray(f)){for(const e of f){if(typeof e==='string')add(e);else if(e&&typeof e==='object')add(e.source);}}else if(f&&typeof f==='object')add(f.source);process.stdout.write([...new Set(found)].join('\n'));" >/tmp/firestack-functions-paths; \
     while IFS= read -r rel; do \
       [ -z "$rel" ] && continue; \

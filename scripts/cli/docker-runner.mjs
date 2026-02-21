@@ -169,6 +169,22 @@ function discoverFunctionsPaths(repoPath, firebaseConfigPath = null) {
   return [...new Set(discovered)];
 }
 
+function deriveFunctionsInstallPaths(repoPath, functionSourcePaths = []) {
+  const installPaths = new Set();
+  for (const sourcePath of functionSourcePaths) {
+    const normalized = normalizeRelativePath(sourcePath);
+    if (!normalized) continue;
+    const segments = normalized.split('/').filter(Boolean);
+    for (let i = 1; i <= segments.length; i += 1) {
+      const candidate = segments.slice(0, i).join('/');
+      if (existsSync(resolve(repoPath, candidate, 'package.json'))) {
+        installPaths.add(candidate);
+      }
+    }
+  }
+  return [...installPaths].sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b));
+}
+
 function extractDependencyInputs(repoPath, functionsPaths = []) {
   const pkg = readJsonStrict(resolve(repoPath, 'package.json')) ?? {};
   const functionsPkgs = functionsPaths.map((path) => ({
@@ -406,7 +422,7 @@ export function defaultBootstrapCommand() {
   return [
     'firestack_has_declared_deps(){ target="$1"; [ -f "$target/package.json" ] || return 0; (cd "$target" && node -e "const fs=require(\'fs\');const p=JSON.parse(fs.readFileSync(\'package.json\',\'utf8\'));const deps={...(p.dependencies||{}),...(p.devDependencies||{}),...(p.optionalDependencies||{})};const missing=Object.keys(deps).some((name)=>!fs.existsSync(\'node_modules/\'+name));process.exit(missing?1:0);") ; }',
     'if [ -f /work/package.json ] && ! firestack_has_declared_deps /work; then if [ -d /opt/deps/node_modules ]; then mkdir -p /work/node_modules && cp -a /opt/deps/node_modules/. /work/node_modules/; fi; firestack_has_declared_deps /work || (cd /work && (npm ci || npm install)); fi',
-    'firestack_functions_csv="${FIRESTACK_FUNCTIONS_PATHS:-}"; if [ -z "$firestack_functions_csv" ]; then firestack_cfg_rel="${FIRESTACK_FIREBASE_CONFIG_PATH:-firebase.json}"; firestack_cfg="/work/${firestack_cfg_rel}"; if [ -f "$firestack_cfg" ]; then firestack_functions_csv="$(FIRESTACK_CONFIG_PATH="$firestack_cfg" node -e "const fs=require(\'fs\');const p=process.env.FIRESTACK_CONFIG_PATH||\'/work/firebase.json\';const cfg=JSON.parse(fs.readFileSync(p,\'utf8\'));const out=[];const add=(v)=>{if(typeof v!==\'string\')return;const n=v.trim().replace(/\\\\/g,\'/\').replace(/^\\.\\//,\'\');if(!n||n.startsWith(\'/\')||n.includes(\'..\'))return;if(fs.existsSync(\'/work/\'+n+\'/package.json\'))out.push(n);};const f=cfg.functions;if(typeof f===\'string\')add(f);else if(Array.isArray(f)){for(const e of f){if(typeof e===\'string\')add(e);else if(e&&typeof e===\'object\')add(e.source);}}else if(f&&typeof f===\'object\')add(f.source);process.stdout.write([...new Set(out)].join(\',\'));" )"; fi; fi; if [ -z "$firestack_functions_csv" ] && [ -f "/work/functions/package.json" ]; then firestack_functions_csv="functions"; fi; if [ -n "$firestack_functions_csv" ]; then IFS=\',\' read -r -a firestack_functions <<< "$firestack_functions_csv"; for rel in "${firestack_functions[@]}"; do module="/work/$rel"; if [ -n "$rel" ] && [ -f "$module/package.json" ] && ! firestack_has_declared_deps "$module"; then if [ -d "/opt/deps/$rel/node_modules" ]; then mkdir -p "$module/node_modules" && cp -a "/opt/deps/$rel/node_modules/." "$module/node_modules/"; fi; firestack_has_declared_deps "$module" || (cd "$module" && (npm ci || npm install)); fi; done; fi',
+    'firestack_functions_csv="${FIRESTACK_FUNCTIONS_PATHS:-}"; firestack_install_csv="${FIRESTACK_FUNCTIONS_INSTALL_PATHS:-}"; if [ -z "$firestack_functions_csv" ] || [ -z "$firestack_install_csv" ]; then firestack_cfg_rel="${FIRESTACK_FIREBASE_CONFIG_PATH:-firebase.json}"; firestack_cfg="/work/${firestack_cfg_rel}"; if [ -f "$firestack_cfg" ]; then discovered="$(FIRESTACK_CONFIG_PATH="$firestack_cfg" node -e "const fs=require(\'fs\');const p=process.env.FIRESTACK_CONFIG_PATH||\'/work/firebase.json\';const cfg=JSON.parse(fs.readFileSync(p,\'utf8\'));const out=[];const add=(v)=>{if(typeof v!==\'string\')return;const n=v.trim().replace(/\\\\/g,\'/\').replace(/^\\.\\//,\'\');if(!n||n.startsWith(\'/\')||n.includes(\'..\'))return;if(fs.existsSync(\'/work/\'+n+\'/package.json\'))out.push(n);};const f=cfg.functions;if(typeof f===\'string\')add(f);else if(Array.isArray(f)){for(const e of f){if(typeof e===\'string\')add(e);else if(e&&typeof e===\'object\')add(e.source);}}else if(f&&typeof f===\'object\')add(f.source);process.stdout.write([...new Set(out)].join(\',\'));" )"; [ -z "$firestack_functions_csv" ] && firestack_functions_csv="$discovered"; [ -z "$firestack_install_csv" ] && firestack_install_csv="$discovered"; fi; fi; if [ -z "$firestack_functions_csv" ] && [ -f "/work/functions/package.json" ]; then firestack_functions_csv="functions"; fi; if [ -z "$firestack_install_csv" ] && [ -n "$firestack_functions_csv" ]; then firestack_install_csv="$firestack_functions_csv"; fi; if [ -n "$firestack_install_csv" ]; then IFS=\',\' read -r -a firestack_install_paths <<< "$firestack_install_csv"; for rel in "${firestack_install_paths[@]}"; do module="/work/$rel"; if [ -n "$rel" ] && [ -f "$module/package.json" ] && ! firestack_has_declared_deps "$module"; then if [ -d "/opt/deps/$rel/node_modules" ]; then mkdir -p "$module/node_modules" && cp -a "/opt/deps/$rel/node_modules/." "$module/node_modules/"; fi; firestack_has_declared_deps "$module" || (cd "$module" && (npm ci || npm install)); fi; done; fi',
   ].join(' && ');
 }
 
@@ -416,7 +432,8 @@ export function createDockerTask({ cwd, logPrefix, dockerConfig, env = process.e
   const resolvedFirebaseConfigPath = firebaseConfigPath
     ? (resolve(cwd, firebaseConfigPath))
     : resolve(cwd, 'firebase.json');
-  const functionsPaths = discoverFunctionsPaths(cwd, resolvedFirebaseConfigPath);
+  const functionSourcePaths = discoverFunctionsPaths(cwd, resolvedFirebaseConfigPath);
+  const functionInstallPaths = deriveFunctionsInstallPaths(cwd, functionSourcePaths);
   if (!existsSync(dockerfileAbsolutePath)) {
     fail(
       logPrefix,
@@ -429,17 +446,18 @@ export function createDockerTask({ cwd, logPrefix, dockerConfig, env = process.e
   const nodeModulesVolumePrefix = `${dockerConfig.nodeModulesVolumePrefix ?? 'firestack-node_modules-'}${namespace}-`;
   const functionsNodeModulesVolumePrefix = `${dockerConfig.functionsNodeModulesVolumePrefix ?? 'firestack-functions-node_modules-'}${namespace}-`;
   const emulatorCacheVolume = `${dockerConfig.emulatorCacheVolumePrefix ?? 'firestack-firebase-cache-'}${namespace}`;
-  const depsHash = computeDepsHash(cwd, dockerfilePath, dockerConfig.lockfilePath ?? 'package-lock.json', functionsPaths);
+  const depsHash = computeDepsHash(cwd, dockerfilePath, dockerConfig.lockfilePath ?? 'package-lock.json', functionInstallPaths);
   const image = `${imageBaseName}:${depsHash}`;
   const nodeModulesVolume = `${nodeModulesVolumePrefix}${depsHash}`;
-  const functionModuleMounts = functionsPaths.map((path) => {
+  const functionModuleMounts = functionInstallPaths.map((path) => {
     const pathHash = createHash('sha256').update(path).digest('hex').slice(0, 8);
     return {
       path,
       volume: `${functionsNodeModulesVolumePrefix}${pathHash}-${depsHash}`,
     };
   });
-  const functionsPathsCsv = functionsPaths.join(',');
+  const functionsPathsCsv = functionSourcePaths.join(',');
+  const functionsInstallPathsCsv = functionInstallPaths.join(',');
   const workdir = dockerConfig.workdir ?? '/work';
   const addHosts = Array.isArray(dockerConfig.addHosts) ? dockerConfig.addHosts : ['host.docker.internal:host-gateway'];
   const runAsHostUser = dockerConfig.runAsHostUser !== false;
@@ -467,6 +485,8 @@ export function createDockerTask({ cwd, logPrefix, dockerConfig, env = process.e
     ...buildHostArgs,
     '--build-arg',
     `FIREBASE_CONFIG_PATH=${firebaseConfigRelPath}`,
+    '--build-arg',
+    `FIRESTACK_FUNCTIONS_INSTALL_PATHS=${functionsInstallPathsCsv}`,
   ];
   const writablePaths = Array.isArray(dockerConfig.writablePaths)
     ? dockerConfig.writablePaths
@@ -539,6 +559,8 @@ export function createDockerTask({ cwd, logPrefix, dockerConfig, env = process.e
         'FIREBASE_EMULATORS_PATH=/firestack-cache/firebase/emulators',
         '-e',
         `FIRESTACK_FUNCTIONS_PATHS=${functionsPathsCsv}`,
+        '-e',
+        `FIRESTACK_FUNCTIONS_INSTALL_PATHS=${functionsInstallPathsCsv}`,
         image,
         'bash',
         '-lc',
