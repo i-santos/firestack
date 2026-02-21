@@ -48,9 +48,19 @@ function ensureParentDir(path) {
   mkdirSync(dirname(resolve(path)), { recursive: true });
 }
 
+function stripAnsi(text) {
+  return text.replace(/\x1B\[[0-9;]*[A-Za-z]/g, '');
+}
+
 function isInfraLine(rawLine) {
-  const line = rawLine.trimStart();
+  const line = stripAnsi(rawLine).trimStart();
   if (/^(i|✔|⚠)\s{2}(functions(?:\[[^\]]+\])?|hosting(?:\[[^\]]+\])?|firestore|auth|emulators|hub|logging|eventarc|tasks|extensions):/.test(line)) {
+    return true;
+  }
+  if (/^i\s{2}Running script:/.test(line)) {
+    return true;
+  }
+  if (/^⚠\s{2}Script exited unsuccessfully/.test(line)) {
     return true;
   }
   if (/^Serving at port \d+/.test(line)) {
@@ -63,7 +73,7 @@ function isInfraLine(rawLine) {
 }
 
 function isInfraImportant(rawLine) {
-  const line = rawLine.trimStart();
+  const line = stripAnsi(rawLine).trimStart();
   return line.startsWith('⚠') || line.startsWith('Error:') || line.includes(' exited unsuccessfully ');
 }
 
