@@ -139,7 +139,8 @@ function computeDepsHash(
   repoPath,
   dockerfilePath,
   lockfilePath = 'package-lock.json',
-  functionsPaths = []
+  functionsPaths = [],
+  extraInputs = {}
 ) {
   const dockerfile = readFileStrict(resolve(repoPath, dockerfilePath));
   const lockfile = readFileStrict(resolve(repoPath, lockfilePath));
@@ -147,6 +148,7 @@ function computeDepsHash(
   hash.update(dockerfile ?? Buffer.from(''));
   hash.update(extractDependencyInputs(repoPath, functionsPaths));
   hash.update(lockfile ?? Buffer.from(''));
+  hash.update(stableStringify(extraInputs));
   for (const functionsPath of functionsPaths) {
     const functionsLockfile = readFileStrict(resolve(repoPath, functionsPath, 'package-lock.json'));
     const functionsNpmShrinkwrap = readFileStrict(resolve(repoPath, functionsPath, 'npm-shrinkwrap.json'));
@@ -200,12 +202,14 @@ function ensureImage(logPrefix, image, dockerfilePath, repoPath, depsHash, build
   const needsUpgrade = imageExists && (currentRank < expectedRank || currentDepsHash !== depsHash);
 
   if (imageExists && !forceRebuild && !needsUpgrade) return;
-  if (imageExists && (forceRebuild || needsUpgrade)) {
-    const reason = forceRebuild
-      ? 'force rebuild enabled'
-      : `rebuild required (current tier=${Number.isFinite(currentRank) ? currentRank : 'unknown'}, target tier=${expectedRank}, deps hash changed=${currentDepsHash !== depsHash})`;
-    console.log(`${logPrefix} ${reason}. removing cached image ${image}`);
+  if (imageExists && forceRebuild) {
+    console.log(`${logPrefix} force rebuild enabled. removing cached image ${image}`);
     runDockerStrict(logPrefix, 'failed to remove docker image for rebuild', ['image', 'rm', image], { stdio: 'inherit' });
+  } else if (needsUpgrade) {
+    console.log(
+      `${logPrefix} rebuilding image in place (current tier=${Number.isFinite(currentRank) ? currentRank : 'unknown'}, ` +
+      `target tier=${expectedRank}, deps hash changed=${currentDepsHash !== depsHash})`
+    );
   }
   console.log(`${logPrefix} building image ${image} (deps hash: ${depsHash})`);
   if (buildArgs.length > 0) {
@@ -386,16 +390,6 @@ function resolveDockerCapability(suiteKey) {
   return 'e2e';
 }
 
-function resolveBaseImageForCapability(capability, dockerConfig = {}) {
-  if (capability === 'unit') {
-    return dockerConfig.unitBaseImage ?? dockerConfig.nodeBaseImage ?? 'node:20-bookworm-slim';
-  }
-  if (capability === 'integration') {
-    return dockerConfig.integrationBaseImage ?? dockerConfig.nodeBaseImage ?? 'node:20-bookworm';
-  }
-  return dockerConfig.e2eBaseImage ?? 'mcr.microsoft.com/playwright:v1.58.2-noble';
-}
-
 function capabilityRank(capability) {
   if (capability === 'unit') return 1;
   if (capability === 'integration') return 2;
@@ -414,12 +408,13 @@ export function createDockerTask({
   const dockerfilePath = dockerConfig.dockerfile ?? 'tests/Dockerfile';
   const dockerfileAbsolutePath = resolve(cwd, dockerfilePath);
   const capability = resolveDockerCapability(suiteKey);
-  const baseImage = resolveBaseImageForCapability(capability, dockerConfig);
+  const nodeBaseImage = dockerConfig.nodeBaseImage ?? 'node:20-bookworm-slim';
   const usesFirebaseTooling = capability !== 'unit';
   const resolvedFirebaseConfigPath = firebaseConfigPath
     ? (resolve(cwd, firebaseConfigPath))
     : resolve(cwd, 'firebase.json');
   const functionsPaths = discoverFunctionsPaths(cwd, resolvedFirebaseConfigPath);
+  const hashFunctionsPaths = usesFirebaseTooling ? functionsPaths : [];
   if (!existsSync(dockerfileAbsolutePath)) {
     fail(
       logPrefix,
@@ -436,7 +431,13 @@ export function createDockerTask({
     cwd,
     dockerfilePath,
     dockerConfig.lockfilePath ?? 'package-lock.json',
-    functionsPaths
+    hashFunctionsPaths,
+    {
+      nodeBaseImage,
+      firebaseConfigPath: usesFirebaseTooling
+        ? relative(cwd, resolvedFirebaseConfigPath).replaceAll('\\', '/')
+        : null,
+    }
   );
   const image = `${imageBaseName}:rolling`;
   const nodeModulesVolume = `${nodeModulesVolumePrefix}${depsHash}`;
@@ -477,13 +478,13 @@ export function createDockerTask({
     ...buildNetworkArgs,
     ...buildHostArgs,
     '--build-arg',
-    `FIRESTACK_TEST_CAPABILITY=${capability}`,
+    `FIRESTACK_NODE_BASE_IMAGE=${nodeBaseImage}`,
     '--build-arg',
     `FIRESTACK_CAPABILITY_RANK=${capabilityRank(capability)}`,
     '--build-arg',
-    `FIRESTACK_DOCKER_BASE_IMAGE=${baseImage}`,
-    '--build-arg',
     `FIREBASE_CONFIG_PATH=${firebaseConfigRelPath}`,
+    '--target',
+    capability,
     '--label',
     `io.firestack.deps-hash=${depsHash}`,
     '--label',
