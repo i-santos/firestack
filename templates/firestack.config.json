@@ -2,15 +2,15 @@
   "version": 1,
   "env": {
     "profiles": {
-      "development": {
+      "default": {
         "files": [
           {
-            "target": ".env.development",
-            "template": "env/.env.development.example"
+            "target": ".env.default",
+            "template": "env/.env.default.example"
           },
           {
-            "target": ".env.test.development",
-            "template": "env/.env.test.development.example"
+            "target": ".env.test.default",
+            "template": "env/.env.test.default.example"
           }
         ]
       },
@@ -31,6 +31,10 @@
           {
             "target": ".env.production",
             "template": "env/.env.production.example"
+          },
+          {
+            "target": ".env.test.production",
+            "template": "env/.env.test.production.example"
           }
         ]
       }

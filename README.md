@@ -37,10 +37,12 @@ Cria (ou atualiza com `--force`) o `tests/Dockerfile` padrão do FireStack no pr
 ### `env`
 
 Gera arquivos `.env` a partir dos templates embutidos no pacote, usando `firestack.config.json`.
+Quando existe `.firebaserc`, os aliases em `projects` são usados como perfis de ambiente.
 
 Exemplos:
 
 ```bash
+npx firestack env --profile default
 npx firestack env --development
 npx firestack env --staging --production
 npx firestack env --all --force
@@ -48,9 +50,11 @@ npx firestack env --all --force
 
 Mapeamento padrão por ambiente:
 
-- `development` -> `.env.development` e `.env.test.development`
+- `default` -> `.env.default` e `.env.test.default`
 - `staging` -> `.env.staging` e `.env.test.staging`
-- `production` -> `.env.production`
+- `production` -> `.env.production` e `.env.test.production`
+
+No `--all`, o FireStack prioriza aliases de `.firebaserc` (ex.: `default`, `staging`, `production`) e aplica fallback para perfis do `firestack.config.json` quando `.firebaserc` não existe.
 
 ### `test`
 

@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadProjectConfig } from './config.mjs';
@@ -7,45 +7,108 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const TEMPLATE_DIR = join(ROOT, 'templates');
 
 function printHelp() {
-  console.log('Usage: firestack env [--development] [--staging] [--production] [--all] [--force] [--target <dir>] [--config <path>]');
+  console.log('Usage: firestack env [--profile <alias>] [--development] [--staging] [--production] [--all] [--force] [--target <dir>] [--config <path>]');
 }
 
-function selectEnvNames(argv) {
-  const selected = new Set();
-  const rest = [];
-  for (const token of argv) {
-    if (token === '--development') selected.add('development');
-    else if (token === '--staging') selected.add('staging');
-    else if (token === '--production') selected.add('production');
-    else if (token === '--all') {
-      selected.add('development');
-      selected.add('staging');
-      selected.add('production');
-    } else {
-      rest.push(token);
-    }
+function normalizeProfileAlias(name) {
+  const trimmed = String(name ?? '').trim().toLowerCase();
+  if (!trimmed) return '';
+  if (trimmed === 'development') return 'default';
+  return trimmed;
+}
+
+function readFirebaseProjects(targetDir) {
+  const rcPath = resolve(targetDir, '.firebaserc');
+  if (!existsSync(rcPath)) return {};
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(rcPath, 'utf8'));
+  } catch {
+    throw new Error(`invalid JSON in ${rcPath}`);
   }
-  if (selected.size === 0) selected.add('development');
-  return { selected, rest };
+  const projects = parsed?.projects;
+  if (!projects || typeof projects !== 'object') return {};
+
+  const normalized = {};
+  for (const [alias, projectId] of Object.entries(projects)) {
+    if (typeof projectId !== 'string' || !projectId.trim()) continue;
+    const profileAlias = normalizeProfileAlias(alias);
+    if (!profileAlias) continue;
+    normalized[profileAlias] = projectId.trim();
+  }
+  return normalized;
+}
+
+function resolveFallbackProfiles(configProfiles = {}, firebaseProjects = {}) {
+  const aliasesFromRc = Object.keys(firebaseProjects);
+  if (aliasesFromRc.length > 0) return aliasesFromRc;
+  const aliasesFromConfig = Object.keys(configProfiles).map((name) => normalizeProfileAlias(name)).filter(Boolean);
+  if (aliasesFromConfig.length > 0) return [...new Set(aliasesFromConfig)];
+  return ['default'];
+}
+
+function resolveTemplateVariant(profileAlias) {
+  if (profileAlias === 'staging') return 'staging';
+  if (profileAlias === 'production') return 'production';
+  return 'default';
+}
+
+function buildGeneratedProfile(profileAlias) {
+  const variant = resolveTemplateVariant(profileAlias);
+  const files = [
+    { target: `.env.${profileAlias}`, template: `env/.env.${variant}.example` },
+    { target: `.env.test.${profileAlias}`, template: `env/.env.test.${variant}.example` },
+  ];
+  return { files };
+}
+
+function resolveProfileDefinition(profileAlias, configProfiles) {
+  const explicit = configProfiles[profileAlias];
+  if (explicit && typeof explicit === 'object') return explicit;
+  if (profileAlias === 'default' && configProfiles.development && typeof configProfiles.development === 'object') {
+    return configProfiles.development;
+  }
+  return buildGeneratedProfile(profileAlias);
+}
+
+function upsertProjectId(content, projectId) {
+  if (!projectId) return content;
+  if (/^GCLOUD_PROJECT=.*/m.test(content)) {
+    return content.replace(/^GCLOUD_PROJECT=.*/m, `GCLOUD_PROJECT=${projectId}`);
+  }
+  const prefix = content.endsWith('\n') || content.length === 0 ? '' : '\n';
+  return `${content}${prefix}GCLOUD_PROJECT=${projectId}\n`;
 }
 
 export function runEnv(argv) {
-  const { selected, rest } = selectEnvNames(argv);
   const args = {
     target: process.cwd(),
     force: false,
     config: null,
+    all: false,
+    selectedProfiles: new Set(),
   };
 
-  for (let i = 0; i < rest.length; i += 1) {
-    const token = rest[i];
+  for (let i = 0; i < argv.length; i += 1) {
+    const token = argv[i];
+    if (token === '--profile') {
+      const alias = normalizeProfileAlias(argv[i + 1] ?? '');
+      if (!alias) throw new Error('missing value for --profile');
+      args.selectedProfiles.add(alias);
+      i += 1;
+      continue;
+    }
+    if (token === '--development') { args.selectedProfiles.add('default'); continue; }
+    if (token === '--staging') { args.selectedProfiles.add('staging'); continue; }
+    if (token === '--production') { args.selectedProfiles.add('production'); continue; }
+    if (token === '--all') { args.all = true; continue; }
     if (token === '--target') {
-      args.target = resolve(rest[i + 1] ?? '.');
+      args.target = resolve(argv[i + 1] ?? '.');
       i += 1;
       continue;
     }
     if (token === '--config') {
-      args.config = resolve(rest[i + 1] ?? 'firestack.config.json');
+      args.config = resolve(argv[i + 1] ?? 'firestack.config.json');
       i += 1;
       continue;
     }
@@ -61,16 +124,21 @@ export function runEnv(argv) {
   }
 
   const { data: config } = loadProjectConfig(args.target, args.config);
-  const profiles = config.env?.profiles ?? {};
+  const configProfiles = config.env?.profiles ?? {};
+  const firebaseProjects = readFirebaseProjects(args.target);
+  const fallbackProfiles = resolveFallbackProfiles(configProfiles, firebaseProjects);
+  const selectedProfiles = args.all
+    ? new Set(fallbackProfiles)
+    : (args.selectedProfiles.size > 0 ? args.selectedProfiles : new Set(['default']));
 
-  for (const profileName of selected) {
-    const profile = profiles[profileName];
+  for (const profileAlias of selectedProfiles) {
+    const profile = resolveProfileDefinition(profileAlias, configProfiles);
     if (!profile) {
-      throw new Error(`missing env profile "${profileName}" in firestack.config.json`);
+      throw new Error(`missing env profile "${profileAlias}" in firestack.config.json`);
     }
     const mappings = Array.isArray(profile.files) ? profile.files : [];
     if (mappings.length === 0) {
-      throw new Error(`profile "${profileName}" has no files mapping in firestack.config.json`);
+      throw new Error(`profile "${profileAlias}" has no files mapping in firestack.config.json`);
     }
 
     for (const mapping of mappings) {
@@ -90,7 +158,10 @@ export function runEnv(argv) {
         continue;
       }
       mkdirSync(dirname(destination), { recursive: true });
-      copyFileSync(source, destination);
+      const sourceContent = readFileSync(source, 'utf8');
+      const projectId = firebaseProjects[profileAlias] ?? null;
+      const nextContent = upsertProjectId(sourceContent, projectId);
+      writeFileSync(destination, nextContent, 'utf8');
       console.log(`[firestack] wrote ${destination}`);
     }
   }
