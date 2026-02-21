@@ -97,7 +97,7 @@ Configure no `firestack.config.json`:
 {
   "test": {
     "docker": {
-      "dockerfile": "tests/integration/Dockerfile",
+      "dockerfile": "tests/Dockerfile",
       "imageBaseName": "firestack-tests",
       "nodeModulesVolumePrefix": "firestack-node_modules-",
       "emulatorCacheVolumePrefix": "firestack-firebase-cache-",

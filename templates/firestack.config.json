@@ -48,7 +48,7 @@
       "ciFailFast": "mkdir -p out/tests/unit out/tests/e2e && rm -rf out/tests/e2e/html out/tests/e2e/artifacts && node --test --experimental-strip-types --test-reporter=junit --test-reporter-destination=out/tests/unit/junit.xml tests/unit/**/*.test.ts && npm --prefix functions run build && firebase emulators:exec --project ${GCLOUD_PROJECT:?Set GCLOUD_PROJECT} \"firestack internal run-integration-report && firestack internal run-e2e smoke\""
     },
     "docker": {
-      "dockerfile": "tests/integration/Dockerfile",
+      "dockerfile": "tests/Dockerfile",
       "imageBaseName": "firestack-tests",
       "nodeModulesVolumePrefix": "firestack-node_modules-",
       "emulatorCacheVolumePrefix": "firestack-firebase-cache-",

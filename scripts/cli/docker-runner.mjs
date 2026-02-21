@@ -278,7 +278,7 @@ export function defaultBootstrapCommand() {
 }
 
 export function createDockerTask({ cwd, logPrefix, dockerConfig, env = process.env, forceRebuild = false }) {
-  const dockerfilePath = dockerConfig.dockerfile ?? 'tests/integration/Dockerfile';
+  const dockerfilePath = dockerConfig.dockerfile ?? 'tests/Dockerfile';
   const namespace = getArtifactNamespace(cwd, env);
   const imageBaseName = `${dockerConfig.imageBaseName ?? 'firestack-tests'}-${namespace}`;
   const nodeModulesVolumePrefix = `${dockerConfig.nodeModulesVolumePrefix ?? 'firestack-node_modules-'}${namespace}-`;
