@@ -24,7 +24,7 @@ npx firestack test --ci --docker --docker-rebuild
 
 ### `init`
 
-Cria `firestack.config.json`, `playwright.config.mjs` e `tests/Dockerfile` no projeto alvo.
+Cria `firestack.config.json`, `playwright.config.mjs`, `tests/Dockerfile` e `.dockerignore` no projeto alvo.
 O template organiza tudo de teste em `out/tests/...`:
 - `out/tests/unit`
 - `out/tests/integration`
@@ -32,7 +32,7 @@ O template organiza tudo de teste em `out/tests/...`:
 
 ### `docker init`
 
-Cria (ou atualiza com `--force`) o `tests/Dockerfile` padrão do FireStack no projeto alvo.
+Cria (ou atualiza com `--force`) o `tests/Dockerfile` e `.dockerignore` padrão do FireStack no projeto alvo.
 
 ### `env`
 

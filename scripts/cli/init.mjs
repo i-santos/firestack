@@ -6,6 +6,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const TEMPLATE_CONFIG = join(ROOT, 'templates', 'firestack.config.json');
 const TEMPLATE_PLAYWRIGHT_CONFIG = join(ROOT, 'templates', 'playwright.config.mjs');
 const TEMPLATE_DOCKERFILE = join(ROOT, 'templates', 'tests.Dockerfile');
+const TEMPLATE_DOCKERIGNORE = join(ROOT, 'templates', 'dockerignore');
 
 function printHelp() {
   console.log('Usage: firestack init [--target <dir>] [--force] [--dry-run]');
@@ -37,6 +38,39 @@ function ensureOutIgnored(targetDir, dryRun) {
   const next = `${content}${prefix}${desiredEntry}\n`;
   writeFileSync(gitignorePath, next, 'utf8');
   console.log(`[firestack] updated ${gitignorePath} with ${desiredEntry}`);
+}
+
+function ensureDockerignoreEntries(targetDir, dryRun) {
+  const dockerignorePath = join(targetDir, '.dockerignore');
+  const hasDockerignore = existsSync(dockerignorePath);
+  const currentContent = hasDockerignore ? readFileSync(dockerignorePath, 'utf8') : '';
+  const desiredEntries = readFileSync(TEMPLATE_DOCKERIGNORE, 'utf8')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#'));
+
+  const existingEntries = new Set(
+    currentContent
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+  );
+  const missing = desiredEntries.filter((entry) => !existingEntries.has(entry));
+  if (missing.length === 0) {
+    console.log('[firestack] .dockerignore already contains default entries');
+    return;
+  }
+
+  if (dryRun) {
+    console.log(`[firestack] would add ${missing.length} entries to ${dockerignorePath}`);
+    return;
+  }
+
+  const endsWithNewline = currentContent === '' || currentContent.endsWith('\n');
+  const prefix = currentContent === '' || endsWithNewline ? '' : '\n';
+  const next = `${currentContent}${prefix}${missing.join('\n')}\n`;
+  writeFileSync(dockerignorePath, next, 'utf8');
+  console.log(`[firestack] updated ${dockerignorePath} with ${missing.length} entries`);
 }
 
 export function runInit(argv) {
@@ -92,6 +126,7 @@ export function runInit(argv) {
   if (skippedExisting) {
     console.log('[firestack] use --force to overwrite existing files');
   }
+  ensureDockerignoreEntries(args.target, args.dryRun);
   ensureOutIgnored(args.target, args.dryRun);
   if (args.dryRun) {
     console.log('[firestack] dry-run mode: no files were written');
