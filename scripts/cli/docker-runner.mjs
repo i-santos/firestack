@@ -306,7 +306,7 @@ export function createDockerTask({ cwd, logPrefix, dockerConfig, env = process.e
   const imageBuildArgs = [...buildNetworkArgs, ...buildHostArgs];
   const writablePaths = Array.isArray(dockerConfig.writablePaths)
     ? dockerConfig.writablePaths
-    : ['out', 'playwright-report'];
+    : ['out'];
   const preloadFirestoreEmulator = dockerConfig.preloadFirestoreEmulator !== false;
 
   return {

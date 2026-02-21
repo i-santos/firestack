@@ -2,6 +2,7 @@
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { runInstall } from '../scripts/cli/install.mjs';
 import { runInit } from '../scripts/cli/init.mjs';
 import { runEnv } from '../scripts/cli/env.mjs';
@@ -21,6 +22,32 @@ Usage:
   firestack test [--ci|--unit|--integration|--e2e|--staging] [--docker] [--docker-rebuild] [--fail-fast] [--full] [--target <dir>] [--config <path>]
   firestack version
   firestack help`);
+}
+
+function runInternal(rest) {
+  const [internalCommand, ...internalArgs] = rest;
+  const internalScriptMap = {
+    'run-integration-report': join(root, 'scripts', 'cli', 'internal-run-integration-report.mjs'),
+    'run-e2e': join(root, 'scripts', 'cli', 'internal-run-e2e.mjs'),
+    'run-e2e-staging': join(root, 'scripts', 'cli', 'internal-run-e2e-staging.mjs'),
+  };
+
+  const scriptPath = internalScriptMap[internalCommand];
+  if (!scriptPath) {
+    console.error(`[firestack] unknown internal command: ${internalCommand ?? '(empty)'}`);
+    process.exit(1);
+  }
+
+  const result = spawnSync(process.execPath, [scriptPath, ...internalArgs], {
+    stdio: 'inherit',
+    env: process.env,
+  });
+
+  if (result.error) {
+    console.error(`[firestack] failed to run internal command "${internalCommand}": ${result.error.message}`);
+    process.exit(1);
+  }
+  process.exit(result.status ?? 1);
 }
 
 function printVersion() {
@@ -57,6 +84,11 @@ if (command === 'env') {
 
 if (command === 'test') {
   runTest(rest);
+  process.exit(0);
+}
+
+if (command === 'internal') {
+  runInternal(rest);
   process.exit(0);
 }
 

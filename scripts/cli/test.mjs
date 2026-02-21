@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, isAbsolute, normalize, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { loadProjectConfig } from './config.mjs';
 import { createDockerTask, defaultBootstrapCommand } from './docker-runner.mjs';
 
@@ -216,6 +217,15 @@ function resolvePlaywrightConfigPath(cwd, command) {
   return null;
 }
 
+function rewriteInternalFirestackInvocations(command, internalBinPath) {
+  if (typeof command !== 'string' || command.length === 0) return command;
+  const replacement = `node ${escapeShell(internalBinPath)} internal`;
+  return command.replace(
+    /\b(?:npx\s+@igorsantos-dev\/firestack|npx\s+firestack|firestack)\s+internal\b/g,
+    replacement
+  );
+}
+
 function normalizeRelativeWritablePath(cwd, rawPath) {
   if (typeof rawPath !== 'string') return null;
   const trimmed = rawPath.trim();
@@ -309,6 +319,47 @@ function parseAttributes(tagSource) {
   return attrs;
 }
 
+function extractFailureSummary(rawFailureText, failureMessage) {
+  if (typeof rawFailureText === 'string' && rawFailureText.trim()) {
+    const errorMatch = rawFailureText.match(/Error:\s*(.+)/);
+    if (errorMatch?.[1]) return errorMatch[1].trim();
+    const firstMeaningfulLine = rawFailureText
+      .split('\n')
+      .map((line) => line.trim())
+      .find((line) => line && !line.startsWith('at ') && !line.startsWith('attachment #') && !line.startsWith('Usage:'));
+    if (firstMeaningfulLine) return firstMeaningfulLine;
+  }
+  if (typeof failureMessage === 'string' && failureMessage.trim()) {
+    return failureMessage.trim();
+  }
+  return 'failed';
+}
+
+function extractFailureDetails(rawFailureText) {
+  if (typeof rawFailureText !== 'string' || !rawFailureText.trim()) return {};
+  const expectedPattern = rawFailureText.match(/Expected pattern:\s*(.+)/)?.[1]?.trim();
+  const receivedString = rawFailureText.match(/Received string:\s*"([^"]+)"/)?.[1]?.trim();
+  const timeoutMs = rawFailureText.match(/Timeout:\s*(\d+)ms/)?.[1]?.trim();
+  return {
+    expectedPattern: expectedPattern || null,
+    receivedString: receivedString || null,
+    timeoutMs: timeoutMs || null,
+  };
+}
+
+function extractArtifactPaths(rawFailureText) {
+  if (typeof rawFailureText !== 'string' || !rawFailureText.trim()) return [];
+  const pathRe = /(?:^|\s)(out\/tests\/[^\s]+(?:\.(?:png|webm|zip|md)|\/?))/gm;
+  const artifacts = [];
+  let match = pathRe.exec(rawFailureText);
+  while (match) {
+    const value = match[1].trim();
+    if (value && !artifacts.includes(value)) artifacts.push(value);
+    match = pathRe.exec(rawFailureText);
+  }
+  return artifacts;
+}
+
 function parseTestcases(xml) {
   const cases = [];
   const caseRe = /<testcase\b([\s\S]*?)(?:\/>|>([\s\S]*?)<\/testcase>)/g;
@@ -324,6 +375,9 @@ function parseTestcases(xml) {
     if (failureTag) status = 'fail';
     let failureMessage = null;
     let failureLocation = null;
+    let failureSummary = null;
+    let artifactPaths = [];
+    let failureDetails = {};
     if (failureTag) {
       const failureAttrs = parseAttributes(failureTag[1] ?? '');
       failureMessage = decodeXmlEntities(failureAttrs.message ?? 'failed');
@@ -333,6 +387,9 @@ function parseTestcases(xml) {
           .replace(']]>', '')
           .trim()
       );
+      failureSummary = extractFailureSummary(rawFailureText, failureMessage);
+      failureDetails = extractFailureDetails(rawFailureText);
+      artifactPaths = extractArtifactPaths(rawFailureText);
       const locationMatch = rawFailureText.match(/([A-Za-z0-9_./\\-]+\.(?:[cm]?[jt]sx?|mjs|cjs)):(\d+):(\d+)/);
       if (locationMatch) {
         failureLocation = `${locationMatch[1]}:${locationMatch[2]}:${locationMatch[3]}`;
@@ -346,6 +403,9 @@ function parseTestcases(xml) {
       status,
       failureMessage,
       failureLocation,
+      failureSummary,
+      failureDetails,
+      artifactPaths,
     });
     match = caseRe.exec(xml);
   }
@@ -476,10 +536,10 @@ function buildSummaryTable(suites, total) {
 
 function printTestSummary(cwd, key) {
   const suiteMap = {
-    unit: readJUnit(resolve(cwd, 'out/test-results/unit.junit.xml'), 'unit'),
-    integration: readJUnit(resolve(cwd, 'out/test-results/integration.junit.xml'), 'integration'),
-    e2e: readJUnit(resolve(cwd, 'out/test-results/e2e/junit.xml'), 'e2e'),
-    'e2e-staging': readJUnit(resolve(cwd, 'out/test-results/e2e-staging/junit.xml'), 'e2e-staging'),
+    unit: readJUnit(resolve(cwd, 'out/tests/unit/junit.xml'), 'unit'),
+    integration: readJUnit(resolve(cwd, 'out/tests/integration/junit.xml'), 'integration'),
+    e2e: readJUnit(resolve(cwd, 'out/tests/e2e/junit.xml'), 'e2e'),
+    'e2e-staging': readJUnit(resolve(cwd, 'out/tests/e2e/staging/junit.xml'), 'e2e-staging'),
   };
 
   let expectedSuiteKeys = ['unit', 'integration', 'e2e', 'e2e-staging'];
@@ -518,12 +578,30 @@ function printTestSummary(cwd, key) {
     .slice(0, 5)
     .map((testcase) => ({ suiteName: suite.suiteName, testcase })));
   if (failedCases.length > 0) {
-    console.log('\n  Failures:');
+    console.log(`\n  ${paint('Failures:', ANSI.bold, ANSI.red)}`);
     failedCases.forEach(({ suiteName, testcase }) => {
-      const message = testcase.failureMessage ? ` -> ${testcase.failureMessage}` : '';
-      console.log(`    - [${suiteName}] ${testcase.name}${message}`);
+      const suiteLabel = paint(`[${suiteName}]`, ANSI.bold, ANSI.red);
+      console.log(`    - ${suiteLabel} ${paint(testcase.name, ANSI.bold)}`);
       if (testcase.failureLocation) {
-        console.log(`      at ${testcase.failureLocation}`);
+        console.log(`      ${paint('location:', ANSI.dim)} ${paint(testcase.failureLocation, ANSI.cyan)}`);
+      }
+      if (testcase.failureSummary) {
+        console.log(`      ${paint('error:', ANSI.dim)} ${paint(testcase.failureSummary, ANSI.red)}`);
+      } else if (testcase.failureMessage) {
+        console.log(`      ${paint('error:', ANSI.dim)} ${paint(testcase.failureMessage, ANSI.red)}`);
+      }
+      if (testcase.failureDetails?.expectedPattern) {
+        console.log(`      ${paint('expected:', ANSI.dim)} ${paint(testcase.failureDetails.expectedPattern, ANSI.green)}`);
+      }
+      if (testcase.failureDetails?.receivedString) {
+        console.log(`      ${paint('received:', ANSI.dim)} ${paint(`"${testcase.failureDetails.receivedString}"`, ANSI.red)}`);
+      }
+      if (testcase.failureDetails?.timeoutMs) {
+        console.log(`      ${paint('timeout:', ANSI.dim)} ${paint(`${testcase.failureDetails.timeoutMs}ms`, ANSI.yellow)}`);
+      }
+      if (Array.isArray(testcase.artifactPaths) && testcase.artifactPaths.length > 0) {
+        const firstArtifacts = testcase.artifactPaths.slice(0, 4);
+        console.log(`      ${paint('artifacts:', ANSI.dim)} ${firstArtifacts.join(', ')}`);
       }
     });
   }
@@ -576,7 +654,12 @@ export function runTest(argv) {
   const { env: testEnv, source: projectSource } = resolveTestEnv(args.target);
   const commands = config.test?.commands ?? {};
   const key = mapCommandKey(args);
-  const command = commands[key] ?? (key === 'ciFailFast' ? commands.ci : null);
+  const firestackCliRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+  const internalRunnerBin = args.docker
+    ? '/firestack-cli/bin/firestack.mjs'
+    : resolve(firestackCliRoot, 'bin/firestack.mjs');
+  const configuredCommand = commands[key] ?? (key === 'ciFailFast' ? commands.ci : null);
+  const command = rewriteInternalFirestackInvocations(configuredCommand, internalRunnerBin);
   if (!command) {
     throw new Error(`missing test command "${key}" in firestack.config.json`);
   }
@@ -643,6 +726,7 @@ export function runTest(argv) {
   const status = task.run({
     command: setup.join(' && '),
     envNames: passThrough,
+    extraArgs: ['-v', `${firestackCliRoot}:/firestack-cli:ro`],
   });
   printTestSummary(args.target, key);
   process.exit(status);

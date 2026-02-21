@@ -24,7 +24,10 @@ npx firestack test --ci --docker --docker-rebuild
 ### `init`
 
 Cria `firestack.config.json` e `playwright.config.mjs` no projeto alvo.
-O template de Playwright centraliza artefatos em `out/test-results/...` por padrão.
+O template organiza tudo de teste em `out/tests/...`:
+- `out/tests/unit`
+- `out/tests/integration`
+- `out/tests/e2e` (inclui `html/`, `junit.xml` e `artifacts/`)
 
 ### `env`
 
@@ -125,14 +128,16 @@ Para lockfiles com pacotes em registry local (`127.0.0.1`), use `buildNetwork: "
 Para E2E, o FireStack também detecta caminhos locais de output no `playwright.config.*` e libera escrita automaticamente.
 
 Layout recomendado de artefatos (centralizado):
-- `out/test-results/unit.junit.xml`
-- `out/test-results/integration.serial.junit.xml`
-- `out/test-results/integration.parallel.junit.xml`
-- `out/test-results/integration.junit.xml`
-- `out/test-results/e2e/junit.xml`
-- `out/test-results/e2e/html/`
-- `out/test-results/e2e-staging/junit.xml`
-- `out/test-results/e2e-staging/html/`
+- `out/tests/unit/junit.xml`
+- `out/tests/integration/serial.junit.xml`
+- `out/tests/integration/parallel.junit.xml`
+- `out/tests/integration/junit.xml`
+- `out/tests/e2e/junit.xml`
+- `out/tests/e2e/html/`
+- `out/tests/e2e/artifacts/`
+- `out/tests/e2e/staging/junit.xml`
+- `out/tests/e2e/staging/html/`
+- `out/tests/e2e/staging/artifacts/`
 
 O comando `firestack test` também imprime um resumo final consolidado (unit/integration/e2e) com totais e falhas principais.
 
