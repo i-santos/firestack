@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { runInstall } from '../scripts/cli/install.mjs';
 import { runInit } from '../scripts/cli/init.mjs';
 import { runDockerInit } from '../scripts/cli/docker-init.mjs';
+import { runConfigMigrate } from '../scripts/cli/config-migrate.mjs';
 import { runEnv } from '../scripts/cli/env.mjs';
 import { runTest } from '../scripts/cli/test.mjs';
 
@@ -20,6 +21,7 @@ Usage:
   firestack install [--target <dir>] [--dry-run] [--force]
   firestack init [--target <dir>] [--dry-run] [--force]
   firestack docker init [--target <dir>] [--dry-run] [--force]
+  firestack config migrate --migration <key> [--target <dir>] [--config <path>] [--dry-run]
   firestack env [--development|--staging|--production|--all] [--force] [--target <dir>] [--config <path>]
   firestack test [--ci|--unit|--integration|--e2e|--staging] [--docker] [--docker-rebuild] [--fail-fast] [--full] [--target <dir>] [--config <path>]
   firestack version
@@ -92,6 +94,16 @@ if (command === 'docker') {
     process.exit(0);
   }
   console.error(`[firestack] unknown docker command: ${dockerCommand ?? '(empty)'}`);
+  process.exit(1);
+}
+
+if (command === 'config') {
+  const [configCommand, ...configArgs] = rest;
+  if (configCommand === 'migrate') {
+    runConfigMigrate(configArgs);
+    process.exit(0);
+  }
+  console.error(`[firestack] unknown config command: ${configCommand ?? '(empty)'}`);
   process.exit(1);
 }
 

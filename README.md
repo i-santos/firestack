@@ -34,6 +34,19 @@ O template organiza tudo de teste em `out/tests/...`:
 
 Cria (ou atualiza com `--force`) o `tests/Dockerfile` e `.dockerignore` padrão do FireStack no projeto alvo.
 
+### `config migrate`
+
+Aplica migrações pontuais no `firestack.config.json` por chave estável de migração.
+
+Exemplos:
+
+```bash
+npx firestack config migrate --migration integration-spec-default
+npx firestack config migrate --migration integration-spec-default --dry-run
+```
+
+Na migração `integration-spec-default`, o Firestack ajusta `test.commands.integration` (e segmentos legados de integração em `ci`/`ciFailFast`) para usar o runner interno de integração padrão.
+
 ### `env`
 
 Gera arquivos `.env` a partir dos templates embutidos no pacote, usando `firestack.config.json`.

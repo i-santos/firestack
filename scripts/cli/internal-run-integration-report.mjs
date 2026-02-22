@@ -33,7 +33,9 @@ function runNodeTest({ concurrency, destination, tests }) {
   const args = [
     '--test',
     '--experimental-strip-types',
+    '--test-reporter=spec',
     '--test-reporter=junit',
+    '--test-reporter-destination=stdout',
     `--test-reporter-destination=${destination}`,
     `--test-concurrency=${concurrency}`,
     ...tests,
