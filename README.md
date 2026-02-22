@@ -175,3 +175,51 @@ npm run registry:start
 npm adduser --registry http://127.0.0.1:4873
 npm run publish:local
 ```
+
+## Publish Strategy (Safe Rollback)
+
+Use pre-release + dist-tags to test in target projects without breaking `latest`.
+
+### 1) Bump beta
+
+```bash
+npm run release:beta:bump
+```
+
+### 2) Publish beta
+
+```bash
+npm run release:beta:publish
+```
+
+Or run both in sequence:
+
+```bash
+npm run release:beta
+```
+
+Install in target project:
+
+```bash
+npm i @igorsantos-dev/firestack@beta
+```
+
+### 3) Promote tested version to latest
+
+Promotes current `package.json` version:
+
+```bash
+npm run release:promote:latest
+```
+
+### 4) Rollback latest to previous stable
+
+```bash
+npm run release:rollback:latest -- --version 0.4.35
+```
+
+### 5) Inspect dist-tags
+
+```bash
+npm run release:dist-tags
+```
