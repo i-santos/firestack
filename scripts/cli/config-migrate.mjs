@@ -1,10 +1,13 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const MIGRATION_VERSIONS = ['0.4.38-beta.0'];
+const MIGRATIONS = ['integration-spec-default'];
 
 function printHelp() {
-  console.log('Usage: firestack config migrate --version <semver> [--target <dir>] [--config <path>] [--dry-run]');
+  console.log(
+    'Usage: firestack config migrate --migration <key> [--target <dir>] [--config <path>] [--dry-run]\n' +
+    `Available migrations: ${MIGRATIONS.join(', ')}`
+  );
 }
 
 function loadConfig(path) {
@@ -22,7 +25,7 @@ function integrationRunnerCommand() {
   return 'firestack internal run-functions-build && firebase emulators:exec --project ${GCLOUD_PROJECT:?Set GCLOUD_PROJECT} "firestack internal run-integration-report"';
 }
 
-function applyV0438Beta0(config) {
+function applyIntegrationSpecDefault(config) {
   const next = structuredClone(config);
   const changes = [];
 
@@ -57,11 +60,9 @@ function applyV0438Beta0(config) {
   return { next, changes };
 }
 
-function runVersionedMigration(config, version) {
-  if (version === '0.4.38-beta.0') return applyV0438Beta0(config);
-  throw new Error(
-    `unsupported --version "${version}". available: ${MIGRATION_VERSIONS.join(', ')}`
-  );
+function runNamedMigration(config, migration) {
+  if (migration === 'integration-spec-default') return applyIntegrationSpecDefault(config);
+  throw new Error(`unsupported --migration "${migration}". available: ${MIGRATIONS.join(', ')}`);
 }
 
 export function runConfigMigrate(argv) {
@@ -69,7 +70,7 @@ export function runConfigMigrate(argv) {
     target: process.cwd(),
     config: null,
     dryRun: false,
-    version: '',
+    migration: '',
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -84,8 +85,8 @@ export function runConfigMigrate(argv) {
       i += 1;
       continue;
     }
-    if (token === '--version') {
-      args.version = String(argv[i + 1] ?? '').trim();
+    if (token === '--migration') {
+      args.migration = String(argv[i + 1] ?? '').trim();
       i += 1;
       continue;
     }
@@ -100,20 +101,20 @@ export function runConfigMigrate(argv) {
     throw new Error(`unknown argument: ${token}`);
   }
 
-  if (!args.version) {
-    throw new Error('missing required argument: --version <semver>');
+  if (!args.migration) {
+    throw new Error('missing required argument: --migration <key>');
   }
 
   const configPath = args.config ?? resolve(args.target, 'firestack.config.json');
   const current = loadConfig(configPath);
-  const { next, changes } = runVersionedMigration(current, args.version);
+  const { next, changes } = runNamedMigration(current, args.migration);
 
   if (changes.length === 0) {
-    console.log(`[firestack] config already up to date for ${args.version}`);
+    console.log(`[firestack] config already up to date for migration "${args.migration}"`);
     return;
   }
 
-  console.log(`[firestack] config migration (${args.version}) changes:`);
+  console.log(`[firestack] config migration (${args.migration}) changes:`);
   for (const change of changes) {
     console.log(`- ${change}`);
   }

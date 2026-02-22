@@ -21,7 +21,7 @@ Usage:
   firestack install [--target <dir>] [--dry-run] [--force]
   firestack init [--target <dir>] [--dry-run] [--force]
   firestack docker init [--target <dir>] [--dry-run] [--force]
-  firestack config migrate --version <semver> [--target <dir>] [--config <path>] [--dry-run]
+  firestack config migrate --migration <key> [--target <dir>] [--config <path>] [--dry-run]
   firestack env [--development|--staging|--production|--all] [--force] [--target <dir>] [--config <path>]
   firestack test [--ci|--unit|--integration|--e2e|--staging] [--docker] [--docker-rebuild] [--fail-fast] [--full] [--target <dir>] [--config <path>]
   firestack version

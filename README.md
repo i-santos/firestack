@@ -36,16 +36,16 @@ Cria (ou atualiza com `--force`) o `tests/Dockerfile` e `.dockerignore` padrão 
 
 ### `config migrate`
 
-Aplica migrações pontuais no `firestack.config.json` por versão alvo.
+Aplica migrações pontuais no `firestack.config.json` por chave estável de migração.
 
 Exemplos:
 
 ```bash
-npx firestack config migrate --version 0.4.38-beta.0
-npx firestack config migrate --version 0.4.38-beta.0 --dry-run
+npx firestack config migrate --migration integration-spec-default
+npx firestack config migrate --migration integration-spec-default --dry-run
 ```
 
-Na versão `0.4.38-beta.0`, a migração ajusta `test.commands.integration` (e segmentos legados de integração em `ci`/`ciFailFast`) para usar o runner interno de integração padrão.
+Na migração `integration-spec-default`, o Firestack ajusta `test.commands.integration` (e segmentos legados de integração em `ci`/`ciFailFast`) para usar o runner interno de integração padrão.
 
 ### `env`
 
