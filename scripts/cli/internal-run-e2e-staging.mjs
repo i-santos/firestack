@@ -37,9 +37,6 @@ const result = spawnSync('node', [e2eRunnerPath, suite], {
   stdio: 'inherit',
   env: {
     ...process.env,
-    PLAYWRIGHT_JUNIT_OUTPUT_FILE: process.env.PLAYWRIGHT_JUNIT_OUTPUT_FILE ?? 'out/tests/e2e/staging/junit.xml',
-    PLAYWRIGHT_HTML_OUTPUT_DIR: process.env.PLAYWRIGHT_HTML_OUTPUT_DIR ?? 'out/tests/e2e/staging/html',
-    PLAYWRIGHT_OUTPUT_DIR: process.env.PLAYWRIGHT_OUTPUT_DIR ?? 'out/tests/e2e/staging/artifacts',
     E2E_BASE_URL: baseUrl,
     E2E_SUITE: suite,
     E2E_CLEANUP: process.env.E2E_CLEANUP ?? 'false',
