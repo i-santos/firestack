@@ -211,6 +211,12 @@ Or run both in sequence:
 npm run release:beta
 ```
 
+Or run bump + commit + publish in one command:
+
+```bash
+npm run release:beta:ship
+```
+
 Install in target project:
 
 ```bash
@@ -225,13 +231,27 @@ Promotes current `package.json` version:
 npm run release:promote:latest
 ```
 
-### 4) Rollback latest to previous stable
+### 4) Publish stable (one command)
+
+From a beta version (for example `0.4.39-beta.1`), this command removes the prerelease suffix, commits, and publishes:
+
+```bash
+npm run release:stable:ship
+```
+
+You can also force an explicit stable version:
+
+```bash
+npm run release:stable:ship -- --version 0.4.40
+```
+
+### 5) Rollback latest to previous stable
 
 ```bash
 npm run release:rollback:latest -- --version 0.4.35
 ```
 
-### 5) Inspect dist-tags
+### 6) Inspect dist-tags
 
 ```bash
 npm run release:dist-tags
