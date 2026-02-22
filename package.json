@@ -25,6 +25,7 @@
     "release:beta:publish": "npm publish --tag beta",
     "release:beta:ship": "node scripts/release/beta-release.mjs",
     "release:beta": "npm run release:beta:bump && npm run release:beta:publish",
+    "release:stable:ship": "node scripts/release/stable-release.mjs",
     "release:promote:latest": "node scripts/release/dist-tag-latest.mjs promote",
     "release:rollback:latest": "node scripts/release/dist-tag-latest.mjs rollback",
     "release:dist-tags": "npm dist-tag ls @igorsantos-dev/firestack",
