@@ -65,7 +65,11 @@ export function discoverFunctionsSourcePaths(cwd, firebaseConfigPath = null) {
   return [...new Set(discovered)];
 }
 
-export function resolveFunctionsRuntimeEnv(cwd, { projectId = null, firebaseConfigPath = null } = {}) {
+export function resolveFunctionsRuntimeEnv(cwd, {
+  projectId = null,
+  firebaseConfigPath = null,
+  includeLocal = true,
+} = {}) {
   const sourcePaths = discoverFunctionsSourcePaths(cwd, firebaseConfigPath);
   const merged = {};
   const loadedFiles = [];
@@ -75,7 +79,7 @@ export function resolveFunctionsRuntimeEnv(cwd, { projectId = null, firebaseConf
     const candidates = [
       resolve(cwd, sourcePath, '.env'),
       ...(normalizedProjectId ? [resolve(cwd, sourcePath, `.env.${normalizedProjectId}`)] : []),
-      resolve(cwd, sourcePath, '.env.local'),
+      ...(includeLocal ? [resolve(cwd, sourcePath, '.env.local')] : []),
     ];
 
     for (const filePath of candidates) {
