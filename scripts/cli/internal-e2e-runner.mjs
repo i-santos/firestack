@@ -52,7 +52,24 @@ export function validateStagingBaseUrl(baseUrl, logPrefix) {
 }
 
 export function grepTagForSuite(suite) {
-  return suite === 'full' ? '@full' : '@smoke';
+  return suite === 'full' ? null : '@smoke';
+}
+
+export function grepInvertTagForSuite() {
+  return '@skip';
+}
+
+export function buildPlaywrightFilterArgs(suite) {
+  const args = [];
+  const grepTag = grepTagForSuite(suite);
+  if (grepTag) {
+    args.push('--grep', grepTag);
+  }
+  const grepInvertTag = grepInvertTagForSuite();
+  if (grepInvertTag) {
+    args.push('--grep-invert', grepInvertTag);
+  }
+  return args;
 }
 
 export function buildRunId(raw) {
