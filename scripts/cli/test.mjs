@@ -185,16 +185,35 @@ export function resolveTestEnv(cwd, {
   };
 }
 
-function mapCommandKey(args) {
+function isCiKey(key) {
+  return key === 'ci' || key === 'ciFailFast' || key === 'ciFull' || key === 'ciFailFastFull';
+}
+
+function isE2eKey(key) {
+  return key === 'e2eSmoke' || key === 'e2eFull';
+}
+
+function isStagingKey(key) {
+  return key === 'stagingSmoke' || key === 'stagingFull';
+}
+
+export function mapCommandKey(args) {
   const explicitCount = [args.ci, args.unit, args.integration, args.e2e, args.staging].filter(Boolean).length;
   const suffix = args.full ? 'Full' : 'Smoke';
 
-  if (explicitCount === 0 || args.ci) return args.failFast ? 'ciFailFast' : 'ci';
+  if (explicitCount > 1) {
+    throw new Error('invalid test scope: choose only one of --ci, --unit, --integration, --e2e, --staging');
+  }
+  if (explicitCount === 0 || args.ci) {
+    if (args.failFast) return args.full ? 'ciFailFastFull' : 'ciFailFast';
+    return args.full ? 'ciFull' : 'ci';
+  }
   if (args.unit) return 'unit';
   if (args.integration) return 'integration';
   if (args.e2e) return `e2e${suffix}`;
   if (args.staging) return `staging${suffix}`;
-  return args.failFast ? 'ciFailFast' : 'ci';
+  if (args.failFast) return args.full ? 'ciFailFastFull' : 'ciFailFast';
+  return args.full ? 'ciFull' : 'ci';
 }
 
 export function promoteCiCommandToFullE2E(command) {
@@ -272,11 +291,11 @@ function requireProject(expectedProjectId, currentProjectId, logPrefix) {
 }
 
 function buildDockerLogPrefix(key) {
-  if (key === 'ci' || key === 'ciFailFast') return '[test:ci:docker]';
+  if (isCiKey(key)) return '[test:ci:docker]';
   if (key === 'integration') return '[test:integration:docker]';
   if (key === 'unit') return '[test:unit:docker]';
-  if (key === 'stagingSmoke' || key === 'stagingFull') return '[test:e2e:staging:docker]';
-  if (key === 'e2eSmoke' || key === 'e2eFull') return '[test:e2e:docker]';
+  if (isStagingKey(key)) return '[test:e2e:staging:docker]';
+  if (isE2eKey(key)) return '[test:e2e:docker]';
   return '[test:docker]';
 }
 
@@ -415,7 +434,7 @@ function resolveDockerWritablePaths(cwd, key, command, dockerConfig, logPrefix) 
     ? dockerConfig.writablePaths
     : ['out'];
   const merged = new Set(configured.map((entry) => String(entry).trim()).filter(Boolean));
-  const includesE2E = key === 'ci' || key === 'e2eSmoke' || key === 'e2eFull' || key === 'stagingSmoke' || key === 'stagingFull';
+  const includesE2E = isCiKey(key) || isE2eKey(key) || isStagingKey(key);
 
   if (!includesE2E) {
     return Array.from(merged);
@@ -679,9 +698,9 @@ function printTestSummary(cwd, key) {
   let expectedSuiteKeys = ['unit', 'integration', 'e2e', 'e2e-staging'];
   if (key === 'unit') expectedSuiteKeys = ['unit'];
   if (key === 'integration') expectedSuiteKeys = ['integration'];
-  if (key === 'e2eSmoke' || key === 'e2eFull') expectedSuiteKeys = ['e2e'];
-  if (key === 'stagingSmoke' || key === 'stagingFull') expectedSuiteKeys = ['e2e-staging'];
-  if (key === 'ci' || key === 'ciFailFast') expectedSuiteKeys = ['unit', 'integration', 'e2e'];
+  if (isE2eKey(key)) expectedSuiteKeys = ['e2e'];
+  if (isStagingKey(key)) expectedSuiteKeys = ['e2e-staging'];
+  if (isCiKey(key)) expectedSuiteKeys = ['unit', 'integration', 'e2e'];
 
   const suites = expectedSuiteKeys
     .map((suiteKey) => suiteMap[suiteKey])
@@ -755,6 +774,16 @@ function expectedJUnitPaths(cwd, key) {
       resolve(cwd, 'out/tests/e2e/junit.xml'),
     ],
     ciFailFast: [
+      resolve(cwd, 'out/tests/unit/junit.xml'),
+      resolve(cwd, 'out/tests/integration/junit.xml'),
+      resolve(cwd, 'out/tests/e2e/junit.xml'),
+    ],
+    ciFull: [
+      resolve(cwd, 'out/tests/unit/junit.xml'),
+      resolve(cwd, 'out/tests/integration/junit.xml'),
+      resolve(cwd, 'out/tests/e2e/junit.xml'),
+    ],
+    ciFailFastFull: [
       resolve(cwd, 'out/tests/unit/junit.xml'),
       resolve(cwd, 'out/tests/integration/junit.xml'),
       resolve(cwd, 'out/tests/e2e/junit.xml'),
@@ -886,7 +915,10 @@ export function runTest(argv) {
   if (!new Set(['compact', 'verbose', 'quiet']).has(args.infraLogs)) {
     throw new Error(`invalid --infra-logs value "${args.infraLogs}" (expected compact|verbose|quiet)`);
   }
-  const configuredCommand = commands[key] ?? (key === 'ciFailFast' ? commands.ci : null);
+  const configuredCommand = commands[key]
+    ?? (key === 'ciFull' ? commands.ci : null)
+    ?? (key === 'ciFailFastFull' ? (commands.ciFailFast ?? commands.ci) : null)
+    ?? (key === 'ciFailFast' ? commands.ci : null);
   const commandFirebaseConfigPath = args.docker
     ? firebaseConfigRuntimePath
     : resolvedFirebaseConfigPath;
@@ -899,7 +931,7 @@ export function runTest(argv) {
   if (!command) {
     throw new Error(`missing test command "${key}" in firestack.config.json`);
   }
-  if (args.ci && args.full) {
+  if (key === 'ciFull' || key === 'ciFailFastFull') {
     const upgradedCommand = promoteCiCommandToFullE2E(command);
     if (upgradedCommand !== command) {
       command = upgradedCommand;
@@ -908,7 +940,7 @@ export function runTest(argv) {
       console.warn('[firestack] ci --full was requested, but no internal run-e2e smoke stage was found in CI command.');
     }
   }
-  if (key === 'ciFailFast' && !commands.ciFailFast) {
+  if ((key === 'ciFailFast' || key === 'ciFailFastFull') && !commands.ciFailFast) {
     console.log('[firestack] ciFailFast command not found; falling back to "ci" command from config.');
   }
 
@@ -941,17 +973,17 @@ export function runTest(argv) {
     : '';
   const nonDockerLogPrefix = '[test:local]';
 
-  if (key === 'ci' || key === 'ciFailFast') {
+  if (isCiKey(key)) {
     assertNoExternalBaseUrlForCi(testEnv, nonDockerLogPrefix);
-  } else if (key === 'e2eSmoke' || key === 'e2eFull') {
+  } else if (isE2eKey(key)) {
     validateExternalBaseUrl(externalBaseUrl, testEnv, nonDockerLogPrefix);
-  } else if (key === 'stagingSmoke' || key === 'stagingFull') {
+  } else if (isStagingKey(key)) {
     validateStagingBaseUrl(testEnv.E2E_BASE_URL ?? 'https://staging.presentgoal.com', testEnv, nonDockerLogPrefix);
   }
 
   if (!args.docker) {
     let nonDockerCommand = command;
-    const isE2e = key === 'e2eSmoke' || key === 'e2eFull';
+    const isE2e = isE2eKey(key);
     if (isE2e && !externalBaseUrl && !commandIncludesFirebaseEmulatorsExec(nonDockerCommand)) {
       if (!projectId) {
         throw new Error(
@@ -986,11 +1018,11 @@ export function runTest(argv) {
     ...(functionsRuntime?.keys ?? []),
   ]));
 
-  if (key === 'ci' || key === 'ciFailFast') {
+  if (isCiKey(key)) {
     assertNoExternalBaseUrlForCi(testEnv, logPrefix);
-  } else if (key === 'e2eSmoke' || key === 'e2eFull') {
+  } else if (isE2eKey(key)) {
     validateExternalBaseUrl(externalBaseUrl, testEnv, logPrefix);
-  } else if (key === 'stagingSmoke' || key === 'stagingFull') {
+  } else if (isStagingKey(key)) {
     const configuredStagingProjectId = typeof dockerConfig.stagingProjectId === 'string'
       ? dockerConfig.stagingProjectId.trim()
       : '';
@@ -1019,7 +1051,7 @@ export function runTest(argv) {
   task.prepare();
 
   const bootstrapCommand = dockerConfig.bootstrapCommand ?? defaultBootstrapCommand();
-  if ((key === 'e2eSmoke' || key === 'e2eFull') && !externalBaseUrl && !projectId) {
+  if (isE2eKey(key) && !externalBaseUrl && !projectId) {
     throw new Error(
       `${logPrefix} missing GCLOUD_PROJECT for emulator-backed E2E. Set it explicitly or configure .firebaserc.`
     );
@@ -1027,8 +1059,9 @@ export function runTest(argv) {
   const dockerFirebaseConfigArg = firebaseConfigRuntimePath
     ? ` --config ${escapeShell(firebaseConfigRuntimePath)}`
     : '';
-  const dockerSuiteCommand = (key === 'e2eSmoke' || key === 'e2eFull') && !externalBaseUrl
-    ? `firestack internal run-functions-build && firebase${dockerFirebaseConfigArg} emulators:exec --project ${escapeShell(projectId)} ${escapeShell(command)}`
+  const dockerRunFunctionsBuild = `node ${escapeShell(internalRunnerBin)} internal run-functions-build`;
+  const dockerSuiteCommand = isE2eKey(key) && !externalBaseUrl
+    ? `${dockerRunFunctionsBuild} && firebase${dockerFirebaseConfigArg} emulators:exec --project ${escapeShell(projectId)} ${escapeShell(command)}`
     : command;
   const setup = [];
   if (bootstrapCommand) setup.push(bootstrapCommand);
