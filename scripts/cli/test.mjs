@@ -311,6 +311,11 @@ function applyFirebaseConfigToCommand(command, firebaseConfigPath) {
   return command.replace(/\bfirebase\s+emulators:exec\b/g, `firebase ${configArg} emulators:exec`);
 }
 
+function commandIncludesFirebaseEmulatorsExec(command) {
+  if (typeof command !== 'string' || command.length === 0) return false;
+  return /\bfirebase\b[\s\S]*\bemulators:exec\b/.test(command);
+}
+
 function buildLogRoutedCommand(command, { routerScriptPath, mode, infraLogFile, suiteLogFile, appendLogs }) {
   const ttyWidth = Number.isFinite(Number(process.stdout.columns)) && Number(process.stdout.columns) > 0
     ? String(process.stdout.columns)
@@ -894,17 +899,44 @@ export function runTest(argv) {
     console.log(`[firestack] merged Functions runtime env from: ${listed.join(', ')}`);
   }
 
+  const externalBaseUrl = testEnv.E2E_BASE_URL?.trim();
+  const projectId = testEnv.GCLOUD_PROJECT?.trim();
+  const firebaseConfigArg = resolvedFirebaseConfigPath
+    ? ` --config ${escapeShell(resolvedFirebaseConfigPath)}`
+    : '';
+  const nonDockerLogPrefix = '[test:local]';
+
+  if (key === 'ci' || key === 'ciFailFast') {
+    assertNoExternalBaseUrlForCi(testEnv, nonDockerLogPrefix);
+  } else if (key === 'e2eSmoke' || key === 'e2eFull') {
+    validateExternalBaseUrl(externalBaseUrl, testEnv, nonDockerLogPrefix);
+  } else if (key === 'stagingSmoke' || key === 'stagingFull') {
+    validateStagingBaseUrl(testEnv.E2E_BASE_URL ?? 'https://staging.presentgoal.com', testEnv, nonDockerLogPrefix);
+  }
+
   if (!args.docker) {
+    let nonDockerCommand = command;
+    const isE2e = key === 'e2eSmoke' || key === 'e2eFull';
+    if (isE2e && !externalBaseUrl && !commandIncludesFirebaseEmulatorsExec(nonDockerCommand)) {
+      if (!projectId) {
+        throw new Error(
+          '[test:e2e] missing GCLOUD_PROJECT for emulator-backed E2E. Set it explicitly or configure .firebaserc.'
+        );
+      }
+      const runFunctionsBuild = `node ${escapeShell(internalRunnerBin)} internal run-functions-build`;
+      nonDockerCommand =
+        `${runFunctionsBuild} && firebase${firebaseConfigArg} emulators:exec --project ${escapeShell(projectId)} ${escapeShell(command)}`;
+    }
     clearExpectedJUnitReports(args.target, key);
     const routedCommand = args.logRouting
-      ? buildLogRoutedCommand(command, {
+      ? buildLogRoutedCommand(nonDockerCommand, {
         routerScriptPath: logRouterScriptPath,
         mode: args.infraLogs,
         infraLogFile: args.infraLogFile,
         suiteLogFile: args.suiteLogFile,
         appendLogs: args.logAppend,
       })
-      : command;
+      : nonDockerCommand;
     const status = runShell(args.target, routedCommand, key, testEnv);
     printTestSummary(args.target, key);
     process.exit(status);
@@ -912,7 +944,6 @@ export function runTest(argv) {
 
   const dockerConfig = config.test?.docker ?? {};
   const logPrefix = buildDockerLogPrefix(key);
-  const externalBaseUrl = testEnv.E2E_BASE_URL?.trim();
   const passThrough = Array.isArray(dockerConfig.passThroughEnv) ? dockerConfig.passThroughEnv : [];
   const dockerEnvNames = Array.from(new Set([
     ...passThrough,
@@ -953,17 +984,16 @@ export function runTest(argv) {
   task.prepare();
 
   const bootstrapCommand = dockerConfig.bootstrapCommand ?? defaultBootstrapCommand();
-  const projectId = testEnv.GCLOUD_PROJECT?.trim();
   if ((key === 'e2eSmoke' || key === 'e2eFull') && !externalBaseUrl && !projectId) {
     throw new Error(
       `${logPrefix} missing GCLOUD_PROJECT for emulator-backed E2E. Set it explicitly or configure .firebaserc.`
     );
   }
-  const firebaseConfigArg = firebaseConfigRuntimePath
+  const dockerFirebaseConfigArg = firebaseConfigRuntimePath
     ? ` --config ${escapeShell(firebaseConfigRuntimePath)}`
     : '';
   const dockerSuiteCommand = (key === 'e2eSmoke' || key === 'e2eFull') && !externalBaseUrl
-    ? `firestack internal run-functions-build && firebase${firebaseConfigArg} emulators:exec --project ${escapeShell(projectId)} ${escapeShell(command)}`
+    ? `firestack internal run-functions-build && firebase${dockerFirebaseConfigArg} emulators:exec --project ${escapeShell(projectId)} ${escapeShell(command)}`
     : command;
   const setup = [];
   if (bootstrapCommand) setup.push(bootstrapCommand);
