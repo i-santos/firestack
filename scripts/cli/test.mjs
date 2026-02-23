@@ -197,6 +197,11 @@ function mapCommandKey(args) {
   return args.failFast ? 'ciFailFast' : 'ci';
 }
 
+export function promoteCiCommandToFullE2E(command) {
+  if (typeof command !== 'string' || command.length === 0) return command;
+  return command.replace(/(\binternal\s+run-e2e)\s+smoke\b/g, '$1 full');
+}
+
 function isOverrideAllowed(env = process.env) {
   return env.ALLOW_NON_STAGING_E2E === 'true';
 }
@@ -885,7 +890,7 @@ export function runTest(argv) {
   const commandFirebaseConfigPath = args.docker
     ? firebaseConfigRuntimePath
     : resolvedFirebaseConfigPath;
-  const command = applyFirebaseConfigToCommand(
+  let command = applyFirebaseConfigToCommand(
     rewriteFirebaseCliInvocations(
       rewriteInternalFirestackInvocations(configuredCommand, internalRunnerBin)
     ),
@@ -893,6 +898,15 @@ export function runTest(argv) {
   );
   if (!command) {
     throw new Error(`missing test command "${key}" in firestack.config.json`);
+  }
+  if (args.ci && args.full) {
+    const upgradedCommand = promoteCiCommandToFullE2E(command);
+    if (upgradedCommand !== command) {
+      command = upgradedCommand;
+      console.log('[firestack] ci --full enabled: promoting internal E2E stage from smoke to full.');
+    } else {
+      console.warn('[firestack] ci --full was requested, but no internal run-e2e smoke stage was found in CI command.');
+    }
   }
   if (key === 'ciFailFast' && !commands.ciFailFast) {
     console.log('[firestack] ciFailFast command not found; falling back to "ci" command from config.');
