@@ -132,16 +132,29 @@ function resolveFirebaseConfigPath(cwd, { explicitPath = null, profileAlias = 'd
   return candidates.find((candidate) => existsSync(candidate)) ?? null;
 }
 
-export function resolveTestEnv(cwd, { profileAlias, firebaseConfigPath = null }) {
+export function resolveTestEnv(cwd, {
+  profileAlias,
+  firebaseConfigPath = null,
+  ignoreAmbientGcloudProject = false,
+} = {}) {
   const profileEnv = loadProfileEnv(cwd, profileAlias);
+  const profileDefinesProject = Object.prototype.hasOwnProperty.call(profileEnv, 'GCLOUD_PROJECT')
+    && typeof profileEnv.GCLOUD_PROJECT === 'string'
+    && profileEnv.GCLOUD_PROJECT.trim();
   const baseEnv = {
-    ...process.env,
+    ...(ignoreAmbientGcloudProject && !profileDefinesProject
+      ? (() => {
+        const cloned = { ...process.env };
+        delete cloned.GCLOUD_PROJECT;
+        return cloned;
+      })()
+      : process.env),
     ...profileEnv,
   };
   let source = null;
   let env = { ...baseEnv };
 
-  if (!(typeof process.env.GCLOUD_PROJECT === 'string' && process.env.GCLOUD_PROJECT.trim())) {
+  if (!(typeof env.GCLOUD_PROJECT === 'string' && env.GCLOUD_PROJECT.trim())) {
     const resolved = resolveFirebaseProjectFromRc(cwd, {
       preferredAlias: profileAlias,
       strictAlias: profileAlias !== 'default' || Boolean(process.env.FIREBASE_ALIAS?.trim()),
@@ -844,6 +857,7 @@ export function runTest(argv) {
   } = resolveTestEnv(args.target, {
     profileAlias,
     firebaseConfigPath: resolvedFirebaseConfigPath,
+    ignoreAmbientGcloudProject: args.staging,
   });
   const firebaseConfigRuntimePath = resolvedFirebaseConfigPath
     ? (() => {
@@ -886,6 +900,12 @@ export function runTest(argv) {
   if (projectSource) {
     console.log(
       `[firestack] using Firebase project "${projectSource.projectId}" (alias "${projectSource.alias}") from .firebaserc`
+    );
+  }
+  if (args.staging && testEnv.GCLOUD_PROJECT?.trim() && projectSource?.projectId
+    && testEnv.GCLOUD_PROJECT.trim() !== projectSource.projectId) {
+    throw new Error(
+      `[test:staging] refusing to run with GCLOUD_PROJECT=${testEnv.GCLOUD_PROJECT.trim()} while .firebaserc alias "${profileAlias}" resolves to ${projectSource.projectId}.`
     );
   }
   if (resolvedFirebaseConfigPath) {
