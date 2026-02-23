@@ -106,6 +106,24 @@ test('resolveFunctionsRuntimeEnv keeps empty-string values from Functions env fi
   assert.ok(resolved.keys.includes('AUTH_ALLOWLIST'));
 }));
 
+test('resolveFunctionsRuntimeEnv can skip .env.local when includeLocal is false', () => withTempProject((root) => {
+  seedFunctionsProject(root);
+  writeFileSync(join(root, 'functions', '.env.demo-present-goal'), 'AUTH_ALLOWLIST=from-project\n');
+  writeFileSync(join(root, 'functions', '.env.local'), 'AUTH_ALLOWLIST=from-local\n');
+
+  const resolved = resolveFunctionsRuntimeEnv(root, {
+    projectId: 'demo-present-goal',
+    firebaseConfigPath: resolve(root, 'firebase.json'),
+    includeLocal: false,
+  });
+
+  assert.equal(resolved.env.AUTH_ALLOWLIST, 'from-project');
+  assert.deepEqual(
+    resolved.loadedFiles.map((path) => path.replaceAll('\\', '/')),
+    [join(root, 'functions', '.env.demo-present-goal').replaceAll('\\', '/')]
+  );
+}));
+
 test('resolveTestEnv ignores ambient GCLOUD_PROJECT in staging mode and uses staging alias project', () => withTempProject((root) => {
   seedFunctionsProject(root);
   writeFileSync(join(root, '.env.staging'), 'E2E_BASE_URL=https://staging.presentgoal.com\n');
@@ -155,4 +173,26 @@ test('resolveTestEnv keeps profile-defined GCLOUD_PROJECT in staging mode', () =
     if (original === undefined) delete process.env.GCLOUD_PROJECT;
     else process.env.GCLOUD_PROJECT = original;
   }
+}));
+
+test('resolveTestEnv does not load Functions .env.local for staging profile', () => withTempProject((root) => {
+  seedFunctionsProject(root);
+  writeFileSync(join(root, '.env.staging'), 'E2E_BASE_URL=https://staging.presentgoal.com\n');
+  writeFileSync(
+    join(root, 'functions', '.env.staging-present-goal'),
+    'AUTH_ALLOWLIST=from-staging-project\n'
+  );
+  writeFileSync(join(root, 'functions', '.env.local'), 'AUTH_ALLOWLIST=from-local\n');
+
+  const resolvedTest = resolveTestEnv(root, {
+    profileAlias: 'staging',
+    firebaseConfigPath: resolve(root, 'firebase.json'),
+    ignoreAmbientGcloudProject: true,
+  });
+
+  assert.equal(resolvedTest.env.AUTH_ALLOWLIST, 'from-staging-project');
+  assert.equal(
+    resolvedTest.functionsRuntime.loadedFiles.some((path) => path.endsWith('/functions/.env.local') || path.endsWith('\\functions\\.env.local')),
+    false
+  );
 }));

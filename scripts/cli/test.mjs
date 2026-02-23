@@ -172,6 +172,7 @@ export function resolveTestEnv(cwd, {
   const functionsRuntime = resolveFunctionsRuntimeEnv(cwd, {
     projectId: env.GCLOUD_PROJECT?.trim() || null,
     firebaseConfigPath,
+    includeLocal: profileAlias !== 'staging',
   });
 
   return {
