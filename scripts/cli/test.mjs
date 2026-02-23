@@ -4,6 +4,7 @@ import { dirname, isAbsolute, normalize, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadProjectConfig } from './config.mjs';
 import { createDockerTask, defaultBootstrapCommand } from './docker-runner.mjs';
+import { parseEnvFile, resolveFunctionsRuntimeEnv } from './functions-env.mjs';
 
 const ANSI = {
   reset: '\x1b[0m',
@@ -86,24 +87,6 @@ function resolveFirebaseProjectFromRc(cwd, { preferredAlias = null, strictAlias 
   return { alias, projectId: projectId.trim() };
 }
 
-function parseEnvFile(content) {
-  const parsed = {};
-  const lines = String(content).split(/\r?\n/);
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const idx = trimmed.indexOf('=');
-    if (idx <= 0) continue;
-    const key = trimmed.slice(0, idx).trim().replace(/^export\s+/, '');
-    let value = trimmed.slice(idx + 1).trim();
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith('\'') && value.endsWith('\''))) {
-      value = value.slice(1, -1);
-    }
-    parsed[key] = value;
-  }
-  return parsed;
-}
-
 function profileVariants(alias) {
   if (alias === 'default') return ['default', 'development'];
   return [alias];
@@ -149,31 +132,42 @@ function resolveFirebaseConfigPath(cwd, { explicitPath = null, profileAlias = 'd
   return candidates.find((candidate) => existsSync(candidate)) ?? null;
 }
 
-function resolveTestEnv(cwd, { profileAlias }) {
+export function resolveTestEnv(cwd, { profileAlias, firebaseConfigPath = null }) {
   const profileEnv = loadProfileEnv(cwd, profileAlias);
-  const env = {
+  const baseEnv = {
     ...process.env,
     ...profileEnv,
   };
-  if (typeof process.env.GCLOUD_PROJECT === 'string' && process.env.GCLOUD_PROJECT.trim()) {
-    return { env, source: null };
+  let source = null;
+  let env = { ...baseEnv };
+
+  if (!(typeof process.env.GCLOUD_PROJECT === 'string' && process.env.GCLOUD_PROJECT.trim())) {
+    const resolved = resolveFirebaseProjectFromRc(cwd, {
+      preferredAlias: profileAlias,
+      strictAlias: profileAlias !== 'default' || Boolean(process.env.FIREBASE_ALIAS?.trim()),
+    });
+    if (resolved) {
+      source = resolved;
+      env = {
+        ...env,
+        GCLOUD_PROJECT: resolved.projectId,
+        FIREBASE_PROJECT_ALIAS: resolved.alias,
+      };
+    }
   }
 
-  const resolved = resolveFirebaseProjectFromRc(cwd, {
-    preferredAlias: profileAlias,
-    strictAlias: profileAlias !== 'default' || Boolean(process.env.FIREBASE_ALIAS?.trim()),
+  const functionsRuntime = resolveFunctionsRuntimeEnv(cwd, {
+    projectId: env.GCLOUD_PROJECT?.trim() || null,
+    firebaseConfigPath,
   });
-  if (!resolved) {
-    return { env, source: null };
-  }
 
   return {
     env: {
       ...env,
-      GCLOUD_PROJECT: resolved.projectId,
-      FIREBASE_PROJECT_ALIAS: resolved.alias,
+      ...functionsRuntime.env,
     },
-    source: resolved,
+    source,
+    functionsRuntime,
   };
 }
 
@@ -834,10 +828,17 @@ export function runTest(argv) {
 
   const { data: config } = loadProjectConfig(args.target, args.config);
   const profileAlias = resolveProfileAlias(args);
-  const { env: testEnv, source: projectSource } = resolveTestEnv(args.target, { profileAlias });
   const resolvedFirebaseConfigPath = resolveFirebaseConfigPath(args.target, {
     explicitPath: args.firebaseConfig,
     profileAlias,
+  });
+  const {
+    env: testEnv,
+    source: projectSource,
+    functionsRuntime,
+  } = resolveTestEnv(args.target, {
+    profileAlias,
+    firebaseConfigPath: resolvedFirebaseConfigPath,
   });
   const firebaseConfigRuntimePath = resolvedFirebaseConfigPath
     ? (() => {
@@ -885,6 +886,13 @@ export function runTest(argv) {
   if (resolvedFirebaseConfigPath) {
     console.log(`[firestack] using Firebase config "${resolvedFirebaseConfigPath}" for profile "${profileAlias}"`);
   }
+  if (Array.isArray(functionsRuntime?.loadedFiles) && functionsRuntime.loadedFiles.length > 0) {
+    const listed = functionsRuntime.loadedFiles.map((path) => {
+      const rel = relative(args.target, path).replaceAll('\\', '/');
+      return rel && !rel.startsWith('..') && !isAbsolute(rel) ? rel : path;
+    });
+    console.log(`[firestack] merged Functions runtime env from: ${listed.join(', ')}`);
+  }
 
   if (!args.docker) {
     clearExpectedJUnitReports(args.target, key);
@@ -906,7 +914,11 @@ export function runTest(argv) {
   const logPrefix = buildDockerLogPrefix(key);
   const externalBaseUrl = testEnv.E2E_BASE_URL?.trim();
   const passThrough = Array.isArray(dockerConfig.passThroughEnv) ? dockerConfig.passThroughEnv : [];
-  const dockerEnvNames = Array.from(new Set([...passThrough, 'FIRESTACK_FIREBASE_CONFIG_PATH']));
+  const dockerEnvNames = Array.from(new Set([
+    ...passThrough,
+    'FIRESTACK_FIREBASE_CONFIG_PATH',
+    ...(functionsRuntime?.keys ?? []),
+  ]));
 
   if (key === 'ci' || key === 'ciFailFast') {
     assertNoExternalBaseUrlForCi(testEnv, logPrefix);
