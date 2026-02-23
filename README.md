@@ -79,8 +79,10 @@ Resolução de perfil/projeto/config Firebase para testes:
 2. Carrega `.env` com fallback por perfil: `.env`, `.env.test`, `.env.<profile>`, `.env.test.<profile>` (para `default`, também considera `development`).
 3. Usa `GCLOUD_PROJECT` se estiver definido; senão resolve de `.firebaserc` pelo alias do profile.
 4. Resolve config Firebase por `--firebase-config <path>`; se não vier, tenta `firebase.<profile>.json` e depois `firebase.json`.
+5. Injeta no processo de testes o mesmo contexto efetivo de env de Cloud Functions (por módulo `functions.source`): `<source>/.env` -> `<source>/.env.<GCLOUD_PROJECT>` -> `<source>/.env.local` (último vence).
 
 Quando o fallback do `.firebaserc` é usado, o CLI também define `FIREBASE_PROJECT_ALIAS` no ambiente (incluindo execução com `--docker`).
+No modo `--docker`, as variáveis resolvidas de Functions também são propagadas para o container de testes.
 
 Exemplos:
 

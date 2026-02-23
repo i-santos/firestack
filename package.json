@@ -1,6 +1,6 @@
 {
   "name": "@igorsantos-dev/firestack",
-  "version": "0.4.40",
+  "version": "0.4.41",
   "description": "Portable DX and testing bootstrap for Node/Firebase projects",
   "type": "module",
   "private": false,
@@ -13,12 +13,14 @@
     "templates",
     "verdaccio",
     "README.md",
+    "CHANGELOG.md",
     "scripts"
   ],
   "engines": {
     "node": ">=20"
   },
   "scripts": {
+    "test": "node --test tests/**/*.test.mjs",
     "pack": "npm pack",
     "publish:local": "bash scripts/publish-package.sh",
     "release:beta:bump": "npm version prerelease --preid=beta --no-git-tag-version",

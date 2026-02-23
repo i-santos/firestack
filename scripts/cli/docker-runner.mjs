@@ -276,7 +276,7 @@ function ensureImage(logPrefix, image, dockerfilePath, repoPath, depsHash, build
 
 function buildEnvArgs(env, envNames) {
   return envNames
-    .filter((name) => typeof env[name] === 'string' && env[name] !== '')
+    .filter((name) => typeof env[name] === 'string')
     .flatMap((name) => ['-e', `${name}=${env[name]}`]);
 }
 
