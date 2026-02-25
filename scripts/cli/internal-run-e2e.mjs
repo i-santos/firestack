@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
-import { buildRunId, grepTagForSuite, resolveSuite, validateExternalBaseUrl } from './internal-e2e-runner.mjs';
+import { buildPlaywrightFilterArgs, buildRunId, resolveSuite, validateExternalBaseUrl } from './internal-e2e-runner.mjs';
 
 const hasPlaywrightPkg = existsSync('node_modules/@playwright/test/package.json');
 const playwrightBin = process.platform === 'win32'
@@ -106,7 +106,7 @@ function stopDevServer(devServer) {
 
 async function main() {
   const suite = resolveSuite(process.argv[2]);
-  const grepTag = grepTagForSuite(suite);
+  const filterArgs = buildPlaywrightFilterArgs(suite);
   const runId = buildRunId(process.env.E2E_RUN_ID);
   const externalBaseUrl = process.env.E2E_BASE_URL?.trim();
   validateExternalBaseUrl(externalBaseUrl, '[test:e2e]');
@@ -127,7 +127,7 @@ async function main() {
     }
 
     const cleanup = process.env.E2E_CLEANUP ?? (shouldStartDevServer ? 'true' : 'false');
-    const result = spawnSync(playwrightBin, ['test', '--project=chromium', '--grep', grepTag, 'tests/e2e'], {
+    const result = spawnSync(playwrightBin, ['test', '--project=chromium', ...filterArgs, 'tests/e2e'], {
       stdio: 'inherit',
       env: {
         ...process.env,

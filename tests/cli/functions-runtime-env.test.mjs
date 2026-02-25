@@ -21,7 +21,12 @@ function seedFunctionsProject(root) {
   writeFileSync(join(root, 'firebase.json'), JSON.stringify({ functions: 'functions' }, null, 2));
   writeFileSync(
     join(root, '.firebaserc'),
-    JSON.stringify({ projects: { default: 'demo-present-goal' } }, null, 2)
+    JSON.stringify({
+      projects: {
+        default: 'demo-present-goal',
+        staging: 'staging-present-goal',
+      },
+    }, null, 2)
   );
 }
 
@@ -99,4 +104,95 @@ test('resolveFunctionsRuntimeEnv keeps empty-string values from Functions env fi
 
   assert.equal(resolved.env.AUTH_ALLOWLIST, '');
   assert.ok(resolved.keys.includes('AUTH_ALLOWLIST'));
+}));
+
+test('resolveFunctionsRuntimeEnv can skip .env.local when includeLocal is false', () => withTempProject((root) => {
+  seedFunctionsProject(root);
+  writeFileSync(join(root, 'functions', '.env.demo-present-goal'), 'AUTH_ALLOWLIST=from-project\n');
+  writeFileSync(join(root, 'functions', '.env.local'), 'AUTH_ALLOWLIST=from-local\n');
+
+  const resolved = resolveFunctionsRuntimeEnv(root, {
+    projectId: 'demo-present-goal',
+    firebaseConfigPath: resolve(root, 'firebase.json'),
+    includeLocal: false,
+  });
+
+  assert.equal(resolved.env.AUTH_ALLOWLIST, 'from-project');
+  assert.deepEqual(
+    resolved.loadedFiles.map((path) => path.replaceAll('\\', '/')),
+    [join(root, 'functions', '.env.demo-present-goal').replaceAll('\\', '/')]
+  );
+}));
+
+test('resolveTestEnv ignores ambient GCLOUD_PROJECT in staging mode and uses staging alias project', () => withTempProject((root) => {
+  seedFunctionsProject(root);
+  writeFileSync(join(root, '.env.staging'), 'E2E_BASE_URL=https://staging.presentgoal.com\n');
+  writeFileSync(join(root, 'functions', '.env.demo-present-goal'), 'AUTH_ALLOWLIST=\n');
+  writeFileSync(
+    join(root, 'functions', '.env.staging-present-goal'),
+    'AUTH_ALLOWLIST=igor@cerebrobinario.com,@presentgoal.com\n'
+  );
+
+  const original = process.env.GCLOUD_PROJECT;
+  process.env.GCLOUD_PROJECT = 'demo-present-goal';
+  try {
+    const resolvedTest = resolveTestEnv(root, {
+      profileAlias: 'staging',
+      firebaseConfigPath: resolve(root, 'firebase.json'),
+      ignoreAmbientGcloudProject: true,
+    });
+
+    assert.equal(resolvedTest.env.GCLOUD_PROJECT, 'staging-present-goal');
+    assert.equal(resolvedTest.env.AUTH_ALLOWLIST, 'igor@cerebrobinario.com,@presentgoal.com');
+  } finally {
+    if (original === undefined) delete process.env.GCLOUD_PROJECT;
+    else process.env.GCLOUD_PROJECT = original;
+  }
+}));
+
+test('resolveTestEnv keeps profile-defined GCLOUD_PROJECT in staging mode', () => withTempProject((root) => {
+  seedFunctionsProject(root);
+  writeFileSync(join(root, '.env.staging'), 'GCLOUD_PROJECT=custom-staging-project\n');
+  writeFileSync(
+    join(root, 'functions', '.env.custom-staging-project'),
+    'AUTH_ALLOWLIST=igor@cerebrobinario.com,@presentgoal.com\n'
+  );
+
+  const original = process.env.GCLOUD_PROJECT;
+  process.env.GCLOUD_PROJECT = 'demo-present-goal';
+  try {
+    const resolvedTest = resolveTestEnv(root, {
+      profileAlias: 'staging',
+      firebaseConfigPath: resolve(root, 'firebase.json'),
+      ignoreAmbientGcloudProject: true,
+    });
+
+    assert.equal(resolvedTest.env.GCLOUD_PROJECT, 'custom-staging-project');
+    assert.equal(resolvedTest.env.AUTH_ALLOWLIST, 'igor@cerebrobinario.com,@presentgoal.com');
+  } finally {
+    if (original === undefined) delete process.env.GCLOUD_PROJECT;
+    else process.env.GCLOUD_PROJECT = original;
+  }
+}));
+
+test('resolveTestEnv does not load Functions .env.local for staging profile', () => withTempProject((root) => {
+  seedFunctionsProject(root);
+  writeFileSync(join(root, '.env.staging'), 'E2E_BASE_URL=https://staging.presentgoal.com\n');
+  writeFileSync(
+    join(root, 'functions', '.env.staging-present-goal'),
+    'AUTH_ALLOWLIST=from-staging-project\n'
+  );
+  writeFileSync(join(root, 'functions', '.env.local'), 'AUTH_ALLOWLIST=from-local\n');
+
+  const resolvedTest = resolveTestEnv(root, {
+    profileAlias: 'staging',
+    firebaseConfigPath: resolve(root, 'firebase.json'),
+    ignoreAmbientGcloudProject: true,
+  });
+
+  assert.equal(resolvedTest.env.AUTH_ALLOWLIST, 'from-staging-project');
+  assert.equal(
+    resolvedTest.functionsRuntime.loadedFiles.some((path) => path.endsWith('/functions/.env.local') || path.endsWith('\\functions\\.env.local')),
+    false
+  );
 }));
