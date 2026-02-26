@@ -11,7 +11,6 @@
   "files": [
     "bin",
     "templates",
-    "verdaccio",
     "README.md",
     "CHANGELOG.md",
     "scripts"
@@ -30,10 +29,7 @@
     "release:stable:ship": "node scripts/release/stable-release.mjs",
     "release:promote:latest": "node scripts/release/dist-tag-latest.mjs promote",
     "release:rollback:latest": "node scripts/release/dist-tag-latest.mjs rollback",
-    "release:dist-tags": "npm dist-tag ls @igorsantos-dev/firestack",
-    "registry:start": "bash scripts/registry-start.sh",
-    "registry:stop": "bash scripts/registry-stop.sh",
-    "registry:logs": "bash scripts/registry-logs.sh"
+    "release:dist-tags": "npm dist-tag ls @igorsantos-dev/firestack"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",

@@ -26,6 +26,7 @@ npx firestack test --ci --docker --docker-rebuild
 
 Cria `firestack.config.json`, `playwright.config.mjs`, `tests/Dockerfile` e `.dockerignore` no projeto alvo.
 O template organiza tudo de teste em `out/tests/...`:
+
 - `out/tests/unit`
 - `out/tests/integration`
 - `out/tests/e2e` (inclui `html/`, `junit.xml` e `artifacts/`)
@@ -106,6 +107,7 @@ No `--ci`, o padrão é executar `integration` e `e2e smoke` e falhar só no fin
 Para modo fail-fast, use `--fail-fast`.
 
 Roteamento de logs para melhor DX (padrão ativo):
+
 - `--infra-logs compact`: mantém output de testes no terminal e reduz ruído dos emuladores.
 - `--infra-logs verbose`: mostra tudo (comportamento tradicional).
 - `--infra-logs quiet`: mostra só infra importante (warnings/errors) no terminal.
@@ -144,6 +146,7 @@ Configure no `firestack.config.json`:
 ```
 
 No modo `--docker`, o FireStack:
+
 - detecta módulos Cloud Functions automaticamente via config Firebase resolvida (`--firebase-config` ou fallback de profile; `functions.source`, incluindo múltiplos codebases);
 - builda imagem com tag baseada em hash de `Dockerfile` + lockfiles + deps de `package.json` (raiz + módulos Functions detectados);
 - reutiliza imagem/volume quando o hash não muda;
@@ -159,6 +162,7 @@ npx firestack test --ci --docker --docker-rebuild
 ```
 
 Guards compatíveis com os scripts legados:
+
 - `ci --docker` bloqueia `E2E_BASE_URL` externo (a menos de `ALLOW_NON_STAGING_E2E=true`);
 - `e2e --docker` valida host permitido para `E2E_BASE_URL`;
 - `staging --docker` valida `GCLOUD_PROJECT` e host staging.
@@ -170,6 +174,7 @@ Para lockfiles com pacotes em registry local (`127.0.0.1`), use `buildNetwork: "
 Para E2E, o FireStack também detecta caminhos locais de output no `playwright.config.*` e libera escrita automaticamente.
 
 Layout recomendado de artefatos (centralizado):
+
 - `out/tests/unit/junit.xml`
 - `out/tests/integration/serial.junit.xml`
 - `out/tests/integration/parallel.junit.xml`
@@ -182,14 +187,6 @@ Layout recomendado de artefatos (centralizado):
 - `out/tests/e2e/staging/artifacts/`
 
 O comando `firestack test` também imprime um resumo final consolidado (unit/integration/e2e) com totais e falhas principais.
-
-## Publish flow (Verdaccio local)
-
-```bash
-npm run registry:start
-npm adduser --registry http://127.0.0.1:4873
-npm run publish:local
-```
 
 ## Publish Strategy (Safe Rollback)
 
