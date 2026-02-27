@@ -1,5 +1,5 @@
 {
-  "name": "@igorsantos-dev/firestack",
+  "name": "@i-santos/firestack",
   "version": "1.0.0",
   "description": "Portable DX and testing bootstrap for Node/Firebase projects",
   "type": "module",

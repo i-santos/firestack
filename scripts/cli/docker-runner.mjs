@@ -69,7 +69,7 @@ function readJsonStrict(path) {
 }
 
 const IGNORE_IMAGE_HASH_PACKAGES = new Set([
-  '@igorsantos-dev/firestack',
+  '@i-santos/firestack',
 ]);
 
 function sanitizeDependencyObject(deps) {
@@ -101,8 +101,8 @@ function sanitizePackageLockJson(lockJson) {
     for (const key of Object.keys(sanitized.packages)) {
       const normalized = key.replace(/\\/g, '/');
       if (
-        normalized === 'node_modules/@igorsantos-dev/firestack' ||
-        normalized.endsWith('/node_modules/@igorsantos-dev/firestack')
+        normalized === 'node_modules/@i-santos/firestack' ||
+        normalized.endsWith('/node_modules/@i-santos/firestack')
       ) {
         delete sanitized.packages[key];
       }

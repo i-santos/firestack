@@ -333,7 +333,7 @@ function rewriteInternalFirestackInvocations(command, internalBinPath) {
   if (typeof command !== 'string' || command.length === 0) return command;
   const replacement = `node ${escapeShell(internalBinPath)} internal`;
   return command.replace(
-    /\b(?:npx\s+@igorsantos-dev\/firestack|npx\s+firestack|firestack)\s+internal\b/g,
+    /\b(?:npx\s+@i-santos\/firestack|npx\s+firestack|firestack)\s+internal\b/g,
     replacement
   );
 }
