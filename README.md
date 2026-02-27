@@ -204,7 +204,7 @@ npm run release
 Fluxo de release:
 
 1. Crie um changeset na sua PR (`npm run changeset`).
-2. Faça merge na branch `master`.
+2. Faça merge na branch `main`.
 3. O workflow `.github/workflows/release.yml` cria/atualiza a PR `chore: release packages`.
 4. Ao fazer merge dessa PR de release, o publish no npm e executado.
 
@@ -221,5 +221,5 @@ npx @i-santos/create-package-starter init --dir .
 - Configure npm Trusted Publishing para este pacote com:
 - owner/repo: `i-santos/firestack`
 - workflow: `.github/workflows/release.yml`
-- branch: `master`
-- Se `master` for protegida e exigir checks na release PR, configure o secret `CHANGESETS_GH_TOKEN`.
+- branch: `main`
+- Se `main` for protegida e exigir checks na release PR, configure o secret `CHANGESETS_GH_TOKEN`.
