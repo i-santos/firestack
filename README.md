@@ -188,70 +188,38 @@ Layout recomendado de artefatos (centralizado):
 
 O comando `firestack test` também imprime um resumo final consolidado (unit/integration/e2e) com totais e falhas principais.
 
-## Publish Strategy (Safe Rollback)
+## Release (Changesets-only)
 
-Use pre-release + dist-tags to test in target projects without breaking `latest`.
+O Firestack usa o fluxo padrao do `package-starter`, baseado em Changesets.
 
-### 1) Bump beta
-
-```bash
-npm run release:beta:bump
-```
-
-### 2) Publish beta
+Comandos oficiais:
 
 ```bash
-npm run release:beta:publish
+npm run check
+npm run changeset
+npm run version-packages
+npm run release
 ```
 
-Or run both in sequence:
+Fluxo de release:
+
+1. Crie um changeset na sua PR (`npm run changeset`).
+2. Faça merge na branch `master`.
+3. O workflow `.github/workflows/release.yml` cria/atualiza a PR `chore: release packages`.
+4. Ao fazer merge dessa PR de release, o publish no npm e executado.
+
+### Bootstrap de projeto existente
+
+Para aplicar esse padrao em um pacote npm ja existente:
 
 ```bash
-npm run release:beta
+npx @i-santos/create-package-starter init --dir .
 ```
 
-Or run bump + commit + publish in one command:
+### Pre-requisitos de publicacao
 
-```bash
-npm run release:beta:ship
-```
-
-Install in target project:
-
-```bash
-npm i @igorsantos-dev/firestack@beta
-```
-
-### 3) Promote tested version to latest
-
-Promotes current `package.json` version:
-
-```bash
-npm run release:promote:latest
-```
-
-### 4) Publish stable (one command)
-
-From a beta version (for example `0.4.39-beta.1`), this command removes the prerelease suffix, commits, and publishes:
-
-```bash
-npm run release:stable:ship
-```
-
-You can also force an explicit stable version:
-
-```bash
-npm run release:stable:ship -- --version 0.4.40
-```
-
-### 5) Rollback latest to previous stable
-
-```bash
-npm run release:rollback:latest -- --version 0.4.35
-```
-
-### 6) Inspect dist-tags
-
-```bash
-npm run release:dist-tags
-```
+- Configure npm Trusted Publishing para este pacote com:
+- owner/repo: `i-santos/firestack`
+- workflow: `.github/workflows/release.yml`
+- branch: `master`
+- Se `master` for protegida e exigir checks na release PR, configure o secret `CHANGESETS_GH_TOKEN`.

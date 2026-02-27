@@ -20,19 +20,17 @@
   },
   "scripts": {
     "test": "node --test tests/**/*.test.mjs",
+    "check": "npm run test",
     "pack": "npm pack",
     "publish:local": "bash scripts/publish-package.sh",
-    "release:beta:bump": "npm version prerelease --preid=beta --no-git-tag-version",
-    "release:beta:publish": "npm publish --tag beta",
-    "release:beta:ship": "node scripts/release/beta-release.mjs",
-    "release:beta": "npm run release:beta:bump && npm run release:beta:publish",
-    "release:stable:ship": "node scripts/release/stable-release.mjs",
-    "release:promote:latest": "node scripts/release/dist-tag-latest.mjs promote",
-    "release:rollback:latest": "node scripts/release/dist-tag-latest.mjs rollback",
-    "release:dist-tags": "npm dist-tag ls @igorsantos-dev/firestack"
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "npm run check && changeset publish",
+    "release:ci": "npm run check && npm run version-packages"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
-    "@types/node": "^24.10.1"
+    "@types/node": "^24.10.1",
+    "@changesets/cli": "^2.29.7"
   }
 }
