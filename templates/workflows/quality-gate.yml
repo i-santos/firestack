@@ -26,6 +26,4 @@ jobs:
         run: npm ci
 
       - name: Firestack CI contracts
-        run: |
-          npx firestack env --staging
-          npx firestack test --ci --profile staging
+        run: npx firestack test --ci --profile staging

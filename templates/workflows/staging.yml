@@ -26,9 +26,6 @@ jobs:
       - name: Install
         run: npm ci
 
-      - name: Prepare staging env
-        run: npx firestack env --staging
-
       - name: Run staging smoke
         run: npx firestack test --staging --profile staging
 

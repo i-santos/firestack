@@ -4,7 +4,8 @@ import { dirname, isAbsolute, normalize, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadProjectConfig } from './config.mjs';
 import { createDockerTask, defaultBootstrapCommand } from './docker-runner.mjs';
-import { parseEnvFile, resolveFunctionsRuntimeEnv } from './functions-env.mjs';
+import { resolveFunctionsRuntimeEnv } from './functions-env.mjs';
+import { startTestServices } from './services.mjs';
 
 const ANSI = {
   reset: '\x1b[0m',
@@ -92,22 +93,6 @@ function profileVariants(alias) {
   return [alias];
 }
 
-function loadProfileEnv(cwd, profileAlias) {
-  const variants = profileVariants(profileAlias);
-  const candidates = [
-    '.env',
-    '.env.test',
-    ...variants.flatMap((variant) => [`.env.${variant}`, `.env.test.${variant}`]),
-  ];
-  const merged = {};
-  for (const fileName of candidates) {
-    const fullPath = resolve(cwd, fileName);
-    if (!existsSync(fullPath)) continue;
-    Object.assign(merged, parseEnvFile(readFileSync(fullPath, 'utf8')));
-  }
-  return merged;
-}
-
 function resolveProfileAlias(args) {
   const explicit = typeof args.profile === 'string' ? args.profile.trim() : '';
   if (explicit) return explicit;
@@ -137,20 +122,13 @@ export function resolveTestEnv(cwd, {
   firebaseConfigPath = null,
   ignoreAmbientGcloudProject = false,
 } = {}) {
-  const profileEnv = loadProfileEnv(cwd, profileAlias);
-  const profileDefinesProject = Object.prototype.hasOwnProperty.call(profileEnv, 'GCLOUD_PROJECT')
-    && typeof profileEnv.GCLOUD_PROJECT === 'string'
-    && profileEnv.GCLOUD_PROJECT.trim();
-  const baseEnv = {
-    ...(ignoreAmbientGcloudProject && !profileDefinesProject
-      ? (() => {
-        const cloned = { ...process.env };
-        delete cloned.GCLOUD_PROJECT;
-        return cloned;
-      })()
-      : process.env),
-    ...profileEnv,
-  };
+  const baseEnv = ignoreAmbientGcloudProject
+    ? (() => {
+      const cloned = { ...process.env };
+      delete cloned.GCLOUD_PROJECT;
+      return cloned;
+    })()
+    : { ...process.env };
   let source = null;
   let env = { ...baseEnv };
 
@@ -172,7 +150,7 @@ export function resolveTestEnv(cwd, {
   const functionsRuntime = resolveFunctionsRuntimeEnv(cwd, {
     projectId: env.GCLOUD_PROJECT?.trim() || null,
     firebaseConfigPath,
-    includeLocal: profileAlias !== 'staging',
+    includeLocal: true,
   });
 
   return {
@@ -981,6 +959,9 @@ export function runTest(argv) {
     validateStagingBaseUrl(testEnv.E2E_BASE_URL ?? 'https://staging.presentgoal.com', testEnv, nonDockerLogPrefix);
   }
 
+  const services = startTestServices({ config, key });
+  Object.assign(testEnv, services.env);
+
   if (!args.docker) {
     let nonDockerCommand = command;
     const isE2e = isE2eKey(key);
@@ -1004,7 +985,13 @@ export function runTest(argv) {
         appendLogs: args.logAppend,
       })
       : nonDockerCommand;
-    const status = runShell(args.target, routedCommand, key, testEnv);
+    const status = (() => {
+      try {
+        return runShell(args.target, routedCommand, key, testEnv);
+      } finally {
+        services.stop();
+      }
+    })();
     printTestSummary(args.target, key);
     process.exit(status);
   }
@@ -1084,11 +1071,17 @@ export function runTest(argv) {
   console.log(`${logPrefix} emulator cache volume: ${task.emulatorCacheVolume}`);
 
   clearExpectedJUnitReports(args.target, key);
-  const status = task.run({
-    command: runnableCommand,
-    envNames: dockerEnvNames,
-    extraArgs: ['-v', `${firestackCliRoot}:/firestack-cli:ro`],
-  });
+  const status = (() => {
+    try {
+      return task.run({
+        command: runnableCommand,
+        envNames: dockerEnvNames,
+        extraArgs: ['-v', `${firestackCliRoot}:/firestack-cli:ro`],
+      });
+    } finally {
+      services.stop();
+    }
+  })();
   printTestSummary(args.target, key);
   process.exit(status);
 }

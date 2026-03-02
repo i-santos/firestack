@@ -25,9 +25,6 @@ jobs:
       - name: Install
         run: npm ci
 
-      - name: Prepare staging env
-        run: npx firestack env --staging
-
       - name: Run weekly extended path
         env:
           FIRESTACK_EMAIL_OBSERVABILITY_LEVEL: '3'

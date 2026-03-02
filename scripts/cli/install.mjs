@@ -83,6 +83,7 @@ export function runInstall(argv) {
   }
   const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
   const depsResult = mergeDevDependencies(pkg, args.force, {
+    'vitest': '^4.0.0',
     '@playwright/test': '^1.58.2',
   });
 

@@ -35,7 +35,7 @@
     "beta:exit": "changeset pre exit",
     "beta:version": "changeset version",
     "beta:publish": "changeset publish",
-    "beta:promote": "npx @i-santos/create-package-starter@1.5.0-beta.13 promote-stable --dir ."
+    "beta:promote": "npx @i-santos/create-package-starter@1.5.0-beta.14 promote-stable --dir ."
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",

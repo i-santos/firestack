@@ -26,9 +26,6 @@ jobs:
       - name: Install
         run: npm ci
 
-      - name: Prepare production env
-        run: npx firestack env --production
-
       - name: Run production validation
         run: npx firestack test --ci --profile production
 

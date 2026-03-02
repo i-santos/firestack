@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const TEMPLATE_CONFIG = join(ROOT, 'templates', 'firestack.config.json');
+const TEMPLATE_VITEST_CONFIG = join(ROOT, 'templates', 'vitest.config.mjs');
 const TEMPLATE_PLAYWRIGHT_CONFIG = join(ROOT, 'templates', 'playwright.config.mjs');
 const TEMPLATE_DOCKERFILE = join(ROOT, 'templates', 'tests.Dockerfile');
 const TEMPLATE_DOCKERIGNORE = join(ROOT, 'templates', 'dockerignore');
@@ -111,6 +112,7 @@ export function runInit(argv) {
 
   const files = [
     { template: TEMPLATE_CONFIG, relativePath: 'firestack.config.json', label: 'firestack.config.json' },
+    { template: TEMPLATE_VITEST_CONFIG, relativePath: 'vitest.config.mjs', label: 'vitest.config.mjs' },
     { template: TEMPLATE_PLAYWRIGHT_CONFIG, relativePath: 'playwright.config.mjs', label: 'playwright.config.mjs' },
     { template: TEMPLATE_DOCKERFILE, relativePath: 'tests/Dockerfile', label: 'tests/Dockerfile' },
     { template: TEMPLATE_WORKFLOW_QUALITY_GATE, relativePath: '.github/workflows/quality-gate.yml', label: '.github/workflows/quality-gate.yml' },

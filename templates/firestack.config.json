@@ -1,55 +1,31 @@
 {
   "version": 1,
-  "env": {
-    "profiles": {
-      "default": {
-        "files": [
-          {
-            "target": ".env.default",
-            "template": "env/.env.default.example"
-          },
-          {
-            "target": ".env.test.default",
-            "template": "env/.env.test.default.example"
-          }
-        ]
-      },
-      "staging": {
-        "files": [
-          {
-            "target": ".env.staging",
-            "template": "env/.env.staging.example"
-          },
-          {
-            "target": ".env.test.staging",
-            "template": "env/.env.test.staging.example"
-          }
-        ]
-      },
-      "production": {
-        "files": [
-          {
-            "target": ".env.production",
-            "template": "env/.env.production.example"
-          },
-          {
-            "target": ".env.test.production",
-            "template": "env/.env.test.production.example"
-          }
-        ]
-      }
-    }
-  },
   "test": {
+    "services": {
+      "integration": [
+        {
+          "name": "mailhog",
+          "smtpPort": 1025,
+          "httpPort": 8025
+        }
+      ],
+      "ci": [
+        {
+          "name": "mailhog",
+          "smtpPort": 1025,
+          "httpPort": 8025
+        }
+      ]
+    },
     "commands": {
-      "unit": "mkdir -p out/tests/unit && node --test --experimental-strip-types --test-reporter=spec --test-reporter=junit --test-reporter-destination=stdout --test-reporter-destination=out/tests/unit/junit.xml tests/unit/**/*.test.ts",
-      "integration": "firestack internal run-functions-build && firebase emulators:exec --project ${GCLOUD_PROJECT:?Set GCLOUD_PROJECT} \"firestack internal run-integration-report\"",
+      "unit": "mkdir -p out/tests/unit && npm exec vitest run tests/unit --reporter=default --reporter=junit --outputFile.junit=out/tests/unit/junit.xml",
+      "integration": "firestack internal run-functions-build && firestack internal run-integration-report",
       "e2eSmoke": "mkdir -p out/tests/e2e && rm -f out/tests/e2e/junit.xml && rm -rf out/tests/e2e/html out/tests/e2e/artifacts && firestack internal run-e2e smoke",
       "e2eFull": "mkdir -p out/tests/e2e && rm -f out/tests/e2e/junit.xml && rm -rf out/tests/e2e/html out/tests/e2e/artifacts && firestack internal run-e2e full",
       "stagingSmoke": "mkdir -p out/tests/e2e/staging && rm -f out/tests/e2e/staging/junit.xml && rm -rf out/tests/e2e/staging/html out/tests/e2e/staging/artifacts && firestack internal run-e2e-staging smoke",
       "stagingFull": "mkdir -p out/tests/e2e/staging && rm -f out/tests/e2e/staging/junit.xml && rm -rf out/tests/e2e/staging/html out/tests/e2e/staging/artifacts && firestack internal run-e2e-staging full",
-      "ci": "mkdir -p out/tests/unit out/tests/e2e && rm -rf out/tests/e2e/html out/tests/e2e/artifacts && node --test --experimental-strip-types --test-reporter=spec --test-reporter=junit --test-reporter-destination=stdout --test-reporter-destination=out/tests/unit/junit.xml tests/unit/**/*.test.ts && firestack internal run-functions-build && firebase emulators:exec --project ${GCLOUD_PROJECT:?Set GCLOUD_PROJECT} \"bash -lc 'set +e; firestack internal run-integration-report; integration_status=\\$?; firestack internal run-e2e smoke; e2e_status=\\$?; set -e; if [ \\$integration_status -ne 0 ] || [ \\$e2e_status -ne 0 ]; then exit 1; fi'\"",
-      "ciFailFast": "mkdir -p out/tests/unit out/tests/e2e && rm -rf out/tests/e2e/html out/tests/e2e/artifacts && node --test --experimental-strip-types --test-reporter=spec --test-reporter=junit --test-reporter-destination=stdout --test-reporter-destination=out/tests/unit/junit.xml tests/unit/**/*.test.ts && firestack internal run-functions-build && firebase emulators:exec --project ${GCLOUD_PROJECT:?Set GCLOUD_PROJECT} \"firestack internal run-integration-report && firestack internal run-e2e smoke\""
+      "ci": "mkdir -p out/tests/unit out/tests/e2e && rm -rf out/tests/e2e/html out/tests/e2e/artifacts && npm exec vitest run tests/unit --reporter=default --reporter=junit --outputFile.junit=out/tests/unit/junit.xml && bash -lc 'set +e; firestack internal run-integration-report; integration_status=$?; firestack internal run-e2e smoke; e2e_status=$?; set -e; if [ $integration_status -ne 0 ] || [ $e2e_status -ne 0 ]; then exit 1; fi'",
+      "ciFailFast": "mkdir -p out/tests/unit out/tests/e2e && rm -rf out/tests/e2e/html out/tests/e2e/artifacts && npm exec vitest run tests/unit --reporter=default --reporter=junit --outputFile.junit=out/tests/unit/junit.xml && firestack internal run-integration-report && firestack internal run-e2e smoke"
     },
     "docker": {
       "dockerfile": "tests/Dockerfile",
@@ -86,6 +62,7 @@
         "E2E_STAGING_FULL_PASSWORD",
         "MAILHOG_HOST",
         "MAILHOG_PORT",
+        "MAILHOG_API_BASE_URL",
         "BREVO_API_KEY",
         "MAILOSAUR_API_KEY",
         "MAILTRAP_API_TOKEN",
