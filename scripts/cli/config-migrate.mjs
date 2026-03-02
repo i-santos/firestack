@@ -22,7 +22,7 @@ function loadConfig(path) {
 }
 
 function integrationRunnerCommand() {
-  return 'firestack internal run-functions-build && firebase emulators:exec --project ${GCLOUD_PROJECT:?Set GCLOUD_PROJECT} "firestack internal run-integration-report"';
+  return 'firestack internal run-functions-build && firestack internal run-integration-report';
 }
 
 function applyIntegrationSpecDefault(config) {
