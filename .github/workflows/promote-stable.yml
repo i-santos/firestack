@@ -1,0 +1,109 @@
+name: Promote Stable
+
+on:
+  workflow_dispatch:
+    inputs:
+      promote_type:
+        description: Promotion bump type
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      summary:
+        description: Promotion changeset summary
+        required: true
+        default: Promote beta track to stable release.
+      target_beta_branch:
+        description: Target beta branch
+        required: true
+        default: release/beta
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    outputs:
+      promotion_branch: ${{ steps.prepare.outputs.promotion_branch }}
+      promotion_pr_number: ${{ steps.pr.outputs.pull-request-number }}
+      promotion_pr_url: ${{ steps.pr.outputs.pull-request-url }}
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GH_APP_ID || secrets.GH_APP_CLIENT_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+          ref: ${{ github.event.inputs.target_beta_branch }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Prepare promotion branch
+        id: prepare
+        run: |
+          promotion_branch="promote/stable-$(date +%s)"
+          echo "promotion_branch=$promotion_branch" >> "$GITHUB_OUTPUT"
+          git checkout -b "$promotion_branch"
+
+      - name: Exit prerelease mode
+        run: npm run beta:exit
+
+      - name: Create promotion changeset
+        run: |
+          mkdir -p .changeset
+          file=".changeset/promote-stable-${{ github.run_id }}.md"
+          cat > "$file" <<EOF
+          ---
+          "@i-santos/firestack": ${{ github.event.inputs.promote_type }}
+          ---
+
+          ${{ github.event.inputs.summary }}
+          EOF
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .changeset
+          git commit -m "chore: promote beta to stable"
+          git push --set-upstream origin "${{ steps.prepare.outputs.promotion_branch }}"
+
+      - name: Open promotion PR
+        id: pr
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          base: ${{ github.event.inputs.target_beta_branch }}
+          branch: ${{ steps.prepare.outputs.promotion_branch }}
+          title: "chore: promote beta to stable"
+          body: |
+            ## Summary
+            - Exit prerelease mode (`changeset pre exit`)
+            - Add stable promotion changeset
+            - Prepare stable release flow from `${{ github.event.inputs.target_beta_branch }}`
+          draft: false
+
+      - name: Enable auto-merge
+        if: steps.pr.outputs.pull-request-number != ''
+        run: gh pr merge "${{ steps.pr.outputs.pull-request-number }}" --repo "${{ github.repository }}" --squash --auto
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}

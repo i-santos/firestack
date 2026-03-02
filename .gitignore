@@ -8,3 +8,17 @@ npm-debug.log*
 .DS_Store
 *.tgz
 ref/
+dist/
+build/
+coverage/
+.turbo/
+.cache/
+tmp/
+temp/
+Thumbs.db
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+!.env.example
+!.env.*.example
+.npmrc

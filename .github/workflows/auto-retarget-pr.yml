@@ -1,0 +1,57 @@
+name: Auto Retarget PR Base
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - edited
+      - ready_for_review
+
+permissions:
+  pull-requests: write
+
+concurrency:
+  group: pr-retarget-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  retarget:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Retarget pull request base branch
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            if (!pr) {
+              core.info('No pull_request payload. Skipping.');
+              return;
+            }
+
+            const head = pr.head.ref;
+            const currentBase = pr.base.ref;
+            const stableBase = 'main';
+            const betaBase = 'release/beta';
+
+            let desiredBase = currentBase;
+            if (head === betaBase) {
+              desiredBase = stableBase;
+            } else {
+              desiredBase = betaBase;
+            }
+
+            if (desiredBase === currentBase) {
+              core.info(`No retarget needed for #${pr.number} (head: ${head}, base: ${currentBase}).`);
+              return;
+            }
+
+            await github.rest.pulls.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number,
+              base: desiredBase
+            });
+
+            core.notice(`Retargeted PR #${pr.number} base from "${currentBase}" to "${desiredBase}".`);

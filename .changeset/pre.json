@@ -1,0 +1,11 @@
+{
+  "mode": "pre",
+  "tag": "beta",
+  "initialVersions": {
+    "@i-santos/firestack": "2.0.0"
+  },
+  "changesets": [
+    "beta-release-flow",
+    "small-toys-brush"
+  ]
+}
