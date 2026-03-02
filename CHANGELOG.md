@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.0.0-beta.1
+
+### Patch Changes
+
+- 299e046: Refactor v3 beta test stack to Vitest for unit/integration, simplify env handling, and add test service orchestration (MailHog) for local/CI parity.
+
 ## 3.0.0-beta.0
 
 ### Major Changes
