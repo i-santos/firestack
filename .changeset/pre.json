@@ -6,6 +6,6 @@
   },
   "changesets": [
     "beta-release-flow",
-    "small-toys-brush"
+    "v3-infra-first-bootstrap"
   ]
 }

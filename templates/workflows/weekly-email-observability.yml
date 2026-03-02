@@ -1,0 +1,36 @@
+name: Weekly Email Observability
+
+on:
+  schedule:
+    - cron: '0 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  weekly-observability:
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Prepare staging env
+        run: npx firestack env --staging
+
+      - name: Run weekly extended path
+        env:
+          FIRESTACK_EMAIL_OBSERVABILITY_LEVEL: '3'
+          FIRESTACK_EMAIL_POLL_MAX_SECONDS: '180'
+          FIRESTACK_EMAIL_MAX_TEST_MESSAGES: '10'
+        run: npx firestack test --staging --full --profile staging

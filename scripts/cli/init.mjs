@@ -7,6 +7,13 @@ const TEMPLATE_CONFIG = join(ROOT, 'templates', 'firestack.config.json');
 const TEMPLATE_PLAYWRIGHT_CONFIG = join(ROOT, 'templates', 'playwright.config.mjs');
 const TEMPLATE_DOCKERFILE = join(ROOT, 'templates', 'tests.Dockerfile');
 const TEMPLATE_DOCKERIGNORE = join(ROOT, 'templates', 'dockerignore');
+const TEMPLATE_WORKFLOW_QUALITY_GATE = join(ROOT, 'templates', 'workflows', 'quality-gate.yml');
+const TEMPLATE_WORKFLOW_STAGING = join(ROOT, 'templates', 'workflows', 'staging.yml');
+const TEMPLATE_WORKFLOW_PRODUCTION = join(ROOT, 'templates', 'workflows', 'production.yml');
+const TEMPLATE_WORKFLOW_WEEKLY = join(ROOT, 'templates', 'workflows', 'weekly-email-observability.yml');
+const TEMPLATE_DOC_TEST_POLICY = join(ROOT, 'templates', 'docs', 'test-policy.md');
+const TEMPLATE_DOC_ENVIRONMENT_SECRETS = join(ROOT, 'templates', 'docs', 'environment-secrets.md');
+const TEMPLATE_DOC_INCIDENT_RUNBOOK = join(ROOT, 'templates', 'docs', 'incident-rollback-runbook.md');
 
 function printHelp() {
   console.log('Usage: firestack init [--target <dir>] [--force] [--dry-run]');
@@ -106,6 +113,25 @@ export function runInit(argv) {
     { template: TEMPLATE_CONFIG, relativePath: 'firestack.config.json', label: 'firestack.config.json' },
     { template: TEMPLATE_PLAYWRIGHT_CONFIG, relativePath: 'playwright.config.mjs', label: 'playwright.config.mjs' },
     { template: TEMPLATE_DOCKERFILE, relativePath: 'tests/Dockerfile', label: 'tests/Dockerfile' },
+    { template: TEMPLATE_WORKFLOW_QUALITY_GATE, relativePath: '.github/workflows/quality-gate.yml', label: '.github/workflows/quality-gate.yml' },
+    { template: TEMPLATE_WORKFLOW_STAGING, relativePath: '.github/workflows/staging.yml', label: '.github/workflows/staging.yml' },
+    { template: TEMPLATE_WORKFLOW_PRODUCTION, relativePath: '.github/workflows/production.yml', label: '.github/workflows/production.yml' },
+    {
+      template: TEMPLATE_WORKFLOW_WEEKLY,
+      relativePath: '.github/workflows/weekly-email-observability.yml',
+      label: '.github/workflows/weekly-email-observability.yml'
+    },
+    { template: TEMPLATE_DOC_TEST_POLICY, relativePath: 'docs/test-policy.md', label: 'docs/test-policy.md' },
+    {
+      template: TEMPLATE_DOC_ENVIRONMENT_SECRETS,
+      relativePath: 'docs/environment-secrets.md',
+      label: 'docs/environment-secrets.md'
+    },
+    {
+      template: TEMPLATE_DOC_INCIDENT_RUNBOOK,
+      relativePath: 'docs/incident-rollback-runbook.md',
+      label: 'docs/incident-rollback-runbook.md'
+    },
   ];
   let skippedExisting = false;
 
