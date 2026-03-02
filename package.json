@@ -1,6 +1,6 @@
 {
   "name": "@i-santos/firestack",
-  "version": "3.0.0-beta.0",
+  "version": "3.0.0-beta.1",
   "description": "Portable DX and testing bootstrap for Node/Firebase projects",
   "type": "module",
   "private": false,

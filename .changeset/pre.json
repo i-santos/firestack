@@ -6,6 +6,7 @@
   },
   "changesets": [
     "beta-release-flow",
-    "v3-infra-first-bootstrap"
+    "v3-infra-first-bootstrap",
+    "v3-test-stack-refactor"
   ]
 }
