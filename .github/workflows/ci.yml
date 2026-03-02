@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - release/beta
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18, 20]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Check
+        run: npm run check
+
+  required-check:
+    name: required-check
+    runs-on: ubuntu-latest
+    needs:
+      - check
+    if: ${{ always() }}
+    steps:
+      - name: Validate matrix result
+        run: |
+          if [ "${{ needs.check.result }}" != "success" ]; then
+            echo "check matrix failed"
+            exit 1
+          fi

@@ -6,7 +6,7 @@
   "private": false,
   "license": "UNLICENSED",
   "bin": {
-    "firestack": "./bin/firestack.mjs"
+    "firestack": "bin/firestack.mjs"
   },
   "files": [
     "bin",
@@ -26,7 +26,12 @@
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "npm run check && changeset publish",
-    "release:ci": "npm run check && npm run version-packages"
+    "release:ci": "npm run check && npm run version-packages",
+    "beta:enter": "changeset pre enter beta",
+    "beta:exit": "changeset pre exit",
+    "beta:version": "changeset version",
+    "beta:publish": "changeset publish",
+    "beta:promote": "npx @i-santos/create-package-starter@1.5.0-beta.13 promote-stable --dir ."
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
