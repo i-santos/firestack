@@ -4,6 +4,13 @@ CLI para bootstrap e execução de testes/env em projetos Firebase sem copiar sc
 
 ## Modelo Híbrido
 
+Estratégia v3 beta (infra-first):
+
+- `release/beta`: trilha beta do pacote.
+- `main`: trilha estável e ambiente `production`.
+- GitHub Actions orquestra gatilhos, aprovações e segredos por ambiente.
+- Firestack define contratos de execução (`firestack env`, `firestack test`).
+
 Comandos principais:
 
 ```bash
@@ -24,7 +31,8 @@ npx firestack test --ci --docker --docker-rebuild
 
 ### `init`
 
-Cria `firestack.config.json`, `playwright.config.mjs`, `tests/Dockerfile` e `.dockerignore` no projeto alvo.
+Cria `firestack.config.json`, `playwright.config.mjs`, `tests/Dockerfile`, `.dockerignore`,
+workflows base em `.github/workflows/` e docs operacionais em `docs/`.
 O template organiza tudo de teste em `out/tests/...`:
 
 - `out/tests/unit`
@@ -199,14 +207,31 @@ npm run check
 npm run changeset
 npm run version-packages
 npm run release
+npm run beta:enter
+npm run beta:version
+npm run beta:publish
 ```
 
 Fluxo de release:
 
 1. Crie um changeset na sua PR (`npm run changeset`).
-2. Faça merge na branch `main`.
+2. Faça merge na branch alvo do track:
+- `release/beta` para beta/staging.
+- `main` para stable/production.
 3. O workflow `.github/workflows/release.yml` cria/atualiza a PR `chore: release packages`.
-4. Ao fazer merge dessa PR de release, o publish no npm e executado.
+4. O publish acontece apenas em commits `chore: release packages` (modelo PR-first).
+5. Em `release/beta`, o publish usa track beta. Em `main`, usa track estável.
+
+### Workflows de ambiente
+
+- Workflows de APP ficam nos templates do pacote:
+- `templates/workflows/staging.yml`
+- `templates/workflows/production.yml`
+- `templates/workflows/weekly-email-observability.yml`
+- `staging.yml` e `production.yml` dos templates incluem deploy Firebase via `firebase deploy`, usando:
+- secret `FIREBASE_SERVICE_ACCOUNT` (JSON)
+- secret `GCLOUD_PROJECT`
+- variable opcional `FIREBASE_DEPLOY_TARGETS` (para `--only`)
 
 ### Bootstrap de projeto existente
 
@@ -221,5 +246,6 @@ npx @i-santos/create-package-starter init --dir .
 - Configure npm Trusted Publishing para este pacote com:
 - owner/repo: `i-santos/firestack`
 - workflow: `.github/workflows/release.yml`
-- branch: `main`
-- Se `main` for protegida e exigir checks na release PR, configure o secret `CHANGESETS_GH_TOKEN`.
+- branch: `release/beta` (beta) e `main` (stable)
+- Se `release/beta` ou `main` forem protegidas e exigirem checks na release PR, configure os checks obrigatórios.
+- Use GitHub App auth para automações de release (`GH_APP_CLIENT_ID` + `GH_APP_PRIVATE_KEY`).
